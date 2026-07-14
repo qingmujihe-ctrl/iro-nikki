@@ -207,8 +207,11 @@
   .avatar{
     width:44px;height:44px;border-radius:50%;flex:0 0 auto;
     display:flex;align-items:center;justify-content:center;
-    font-weight:900;font-size:16px;color:#0c0d10;
+    font-weight:900;font-size:16px;color:#0c0d10;overflow:hidden;
   }
+  .avatar img{width:100%;height:100%;object-fit:cover;display:block;}
+  .avatar.tappable{cursor:pointer;box-shadow:0 0 0 2px var(--line);}
+  img.dotc{object-fit:cover;background:var(--surface2);}
   #meName{
     flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line);
     border-radius:12px;color:var(--ink);font-family:inherit;font-size:14px;
@@ -405,9 +408,11 @@
     <div class="panel">
       <h2>MY PROFILE</h2>
       <div class="me-row">
-        <div class="avatar" id="meAvatar"></div>
+        <div class="avatar tappable" id="meAvatar"></div>
         <input id="meName" maxlength="12" placeholder="YOUR NAME" autocomplete="off" />
       </div>
+      <div class="fnote" style="text-align:left;margin:6px 0 12px;">TAP THE AVATAR TO SET YOUR PHOTO</div>
+      <input type="file" id="avatarInput" accept="image/*" />
       <div class="frow-btns">
         <button class="wbtn" id="exportBtn">EXPORT MY DIARY</button>
         <button class="wbtn" id="importBtn">ADD FRIEND FILE</button>
@@ -741,11 +746,18 @@ function renderAlbum(){
     const rk=typeof r.score==="number"?rankOf(r.score):null;
     const likedBy=(p.cloud&&p.cloud.likedBy)||null;
     const liked=!!(likedBy&&myUid&&likedBy.includes(myUid));
+    let av=null;
+    if(p.owner==="me")av=profile.avatar;
+    else if(p.owner.startsWith("peer:"))av=(cloudPeers[p.owner.slice(5)]||{}).avatar;
+    else av=(friends[p.owner]||{}).avatar;
+    const headIcon=av
+      ?`<img class="dotc" src="${av}" style="border-color:${r.color}" alt="" />`
+      :`<div class="dotc" style="background:${r.color}"></div>`;
     const post=document.createElement("div");
     post.className="post";
     post.innerHTML=`
       <div class="head">
-        <div class="dotc" style="background:${r.color}"></div>
+        ${headIcon}
         <div>
           <div class="n">${esc(r.name)} <span class="who">@${esc(p.who)}</span></div>
           <div class="d">${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}</div>
@@ -857,11 +869,17 @@ const BOTS=[
   {id:"bot_hana",name:"hana",color:"#ff7eb9",style:1},
   {id:"bot_sora",name:"sora",color:"#00cec9",style:2},
 ];
-function avatarEl(name,color,cls){
+function avatarEl(name,color,avatar){
   const a=document.createElement("div");
-  a.className="avatar"+(cls?" "+cls:"");
-  a.style.background=color;
-  a.textContent=(name||"?").charAt(0).toUpperCase();
+  a.className="avatar";
+  if(avatar){
+    const img=document.createElement("img");
+    img.src=avatar;img.alt="";
+    a.appendChild(img);
+  }else{
+    a.style.background=color;
+    a.textContent=(name||"?").charAt(0).toUpperCase();
+  }
   return a;
 }
 /* generative art for bot posts */
@@ -900,7 +918,10 @@ function followBot(bot){
 function renderFriends(){
   /* profile */
   const av=$("meAvatar");
-  av.replaceWith(Object.assign(avatarEl(profile.name,profile.color),{id:"meAvatar"}));
+  const nav=Object.assign(avatarEl(profile.name,profile.color,profile.avatar),{id:"meAvatar"});
+  nav.classList.add("tappable");
+  nav.addEventListener("click",()=>$("avatarInput").click());
+  av.replaceWith(nav);
   $("meName").value=profile.name||"";
 
   /* friend list */
@@ -910,7 +931,7 @@ function renderFriends(){
   ids.forEach(id=>{
     const f=friends[id];
     const row=document.createElement("div");row.className="frow";
-    row.appendChild(avatarEl(f.name,f.color||"#7f8fa6"));
+    row.appendChild(avatarEl(f.name,f.color||"#7f8fa6",f.avatar));
     const info=document.createElement("div");
     const n=Object.keys(f.posts||{}).length;
     info.innerHTML=`<div class="fn">${esc(f.name)}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"}</div>`;
@@ -946,10 +967,27 @@ $("meName").addEventListener("change",()=>{
   saveProfile();renderFriends();
   if(window.cloud)window.cloud.setName(profile.name);
 });
+$("avatarInput").addEventListener("change",e=>{
+  const f=e.target.files[0];e.target.value="";if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      const side=Math.min(img.width,img.height);
+      const cv=document.createElement("canvas");const S=128;cv.width=S;cv.height=S;
+      cv.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S,S);
+      profile.avatar=cv.toDataURL("image/jpeg",0.85);
+      saveProfile();renderFriends();
+      if(window.cloud)window.cloud.setAvatar(profile.avatar);
+    };
+    img.src=ev.target.result;
+  };
+  rd.readAsDataURL(f);
+});
 
 /* export / import */
 $("exportBtn").addEventListener("click",()=>{
-  const data={app:"iro-nikki",v:1,id:profile.id,name:profile.name||"YOU",color:profile.color,posts:records};
+  const data={app:"iro-nikki",v:1,id:profile.id,name:profile.name||"YOU",color:profile.color,avatar:profile.avatar||null,posts:records};
   const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
   const a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
@@ -971,7 +1009,7 @@ $("importInput").addEventListener("change",e=>{
       const d=JSON.parse(ev.target.result);
       if(d.app!=="iro-nikki"||!d.id||!d.posts)throw 0;
       if(d.id===profile.id){alert("That's your own diary.");return;}
-      friends[d.id]={id:d.id,name:d.name||"friend",color:d.color||"#7f8fa6",posts:d.posts};
+      friends[d.id]={id:d.id,name:d.name||"friend",color:d.color||"#7f8fa6",avatar:d.avatar||null,posts:d.posts};
       saveFriends();renderFriends();
       alert("@"+(d.name||"friend")+" added!");
     }catch(err){alert("Invalid file.");}
@@ -1027,8 +1065,12 @@ try{
   let me=meDoc.exists()?meDoc.data():null;
   if(!me){
     const code=await allocCode();
-    me={name:profile.name||"YOU",color:profile.color,code};
+    me={name:profile.name||"YOU",color:profile.color,code,avatar:profile.avatar||null};
     await FS.setDoc(meRef,me);
+  }else if((profile.avatar||null)!==(me.avatar||null)){
+    // ローカルのアバターをクラウドへ同期
+    me.avatar=profile.avatar||null;
+    FS.updateDoc(meRef,{avatar:me.avatar}).catch(()=>{});
   }
   $("myCode").textContent=me.code;
   $("cloudOff").classList.add("hidden");
@@ -1058,7 +1100,7 @@ try{
     uids.forEach(puid=>{
       const f=cloudPeers[puid];
       const row=document.createElement("div");row.className="frow";
-      row.appendChild(avatarEl(f.name,f.color||"#7f8fa6"));
+      row.appendChild(avatarEl(f.name,f.color||"#7f8fa6",f.avatar));
       const info=document.createElement("div");
       const n=Object.keys(f.posts||{}).length;
       info.innerHTML=`<div class="fn">${esc(f.name||"friend")}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"} · CLOUD</div>`;
@@ -1081,7 +1123,7 @@ try{
       if(peerUnsubs[puid])return;
       const unsubUser=FS.onSnapshot(FS.doc(db,"users",puid),us=>{
         const u=us.data()||{};
-        cloudPeers[puid]=Object.assign(cloudPeers[puid]||{posts:{}},{name:u.name||"friend",color:u.color||"#7f8fa6"});
+        cloudPeers[puid]=Object.assign(cloudPeers[puid]||{posts:{}},{name:u.name||"friend",color:u.color||"#7f8fa6",avatar:u.avatar||null});
         renderFollowing();refresh();
       });
       const unsubPosts=FS.onSnapshot(
@@ -1127,6 +1169,7 @@ try{
         {likedBy:liked?FS.arrayRemove(uid):FS.arrayUnion(uid)}).catch(()=>{});
     },
     setName(n){me.name=n;FS.updateDoc(meRef,{name:n}).catch(()=>{});},
+    setAvatar(a){me.avatar=a;FS.updateDoc(meRef,{avatar:a||null}).catch(()=>{});},
   };
 }catch(e){
   $("cloudStatus").textContent="CLOUD ERROR";
