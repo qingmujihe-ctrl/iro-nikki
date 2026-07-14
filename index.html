@@ -420,11 +420,6 @@
     </div>
 
     <div class="panel">
-      <h2>SYNC RANKING · LAST 30 DAYS</h2>
-      <div id="rankingList"></div>
-    </div>
-
-    <div class="panel">
       <div class="seg">
         <button class="on" id="segMonthly">MONTHLY</button>
         <button id="segPhotos">ALL PHOTOS</button>
@@ -437,6 +432,10 @@
 
   <!-- ============ TIMELINE VIEW ============ -->
   <section class="view" id="viewTimeline">
+    <div class="panel">
+      <h2>TODAY'S RANKING</h2>
+      <div id="rankingList"></div>
+    </div>
     <div class="panel" style="padding:16px 16px 18px;">
       <h2>TODAY'S TIMELINE</h2>
       <div class="feed" id="feed"></div>
@@ -600,6 +599,11 @@ function judge(imgEl, targetHex){
   let score = Math.min(1,Math.sqrt(cov*4.5))*62 + Math.min(1,Math.sqrt(covLoose*2.4))*23 + Math.max(0,1-minD/60)*15;
   score=Math.round(Math.max(2,Math.min(99,score)));
   return {score, rank:rankOf(score)};
+}
+function makeThumb(img){
+  const S=144,cv=document.createElement("canvas");cv.width=cv.height=S;
+  cv.getContext("2d").drawImage(img,0,0,S,S);
+  return cv.toDataURL("image/jpeg",0.6);
 }
 function rankOf(s){
   if(s>=85)return{t:"PERFECT MATCH",c:"#00ffb3"};
@@ -765,7 +769,7 @@ function processShot(dataUrl){
   img.onload=()=>{
     setTimeout(()=>{ // let the analyzing state breathe
       const {score,rank}=judge(img,todayColor.hex);
-      records[todayKey]={date:todayKey,color:todayColor.hex,name:todayColor.name,en:todayColor.en,photo:dataUrl,score,rank:rank.t};
+      records[todayKey]={date:todayKey,color:todayColor.hex,name:todayColor.name,en:todayColor.en,photo:dataUrl,thumb:makeThumb(img),score,rank:rank.t};
       save(records);
       if(window.cloud)window.cloud.pushPost(records[todayKey]);
       $("analyzing").classList.add("hidden");
@@ -808,10 +812,26 @@ function initTodayState(){
   if(typeof r.score==="number")showResult(r.score,rankOf(r.score));
   lockToday();
 }
+/* 既存レコードにサムネイルがなければ後追い生成 */
+async function backfillThumbs(){
+  const missing=Object.keys(records).filter(k=>records[k].photo&&!records[k].thumb);
+  if(!missing.length)return;
+  for(const k of missing){
+    await new Promise(res=>{
+      const im=new Image();
+      im.onload=()=>{try{records[k].thumb=makeThumb(im);}catch(e){}res();};
+      im.onerror=res;
+      im.src=records[k].photo;
+    });
+  }
+  save(records);
+  if($("viewAlbum").classList.contains("on"))renderAlbum();
+}
 recordsReady.then(()=>{
   initTodayState();
   if($("viewAlbum").classList.contains("on"))renderAlbum();
   if($("viewTimeline").classList.contains("on"))renderTimeline();
+  backfillThumbs();
 });
 
 /* ================= album ================= */
@@ -827,14 +847,14 @@ function renderAlbum(){
   const scores=keys.map(k=>records[k].score).filter(s=>typeof s==="number");
   $("stAvg").textContent=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"–";
 
-  /* albums + ranking */
+  /* albums */
   renderMonthly(keys);
   renderPhotos(keys);
-  renderRanking();
 }
 
 /* ================= timeline (今日の投稿だけ・BeReal流) ================= */
 function renderTimeline(){
+  renderRanking();
   const feed=$("feed");feed.innerHTML="";
   const posts=[];
   if(records[todayKey])posts.push({owner:"me",who:profile.name||"YOU",key:todayKey,r:records[todayKey],cloud:cloudSelfPosts[todayKey]||null,ownerUid:myUid});
@@ -890,29 +910,25 @@ function renderTimeline(){
   });
 }
 
-/* ================= ranking ================= */
+/* ================= ranking (今日のスコアで勝負) ================= */
 function renderRanking(){
   const box=$("rankingList");box.innerHTML="";
-  const cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-29);
-  const cutKey=ymd(cutoff);
-  const avgOf=posts=>{
-    const s=Object.keys(posts||{})
-      .filter(k=>k>=cutKey&&k<=todayKey&&typeof posts[k].score==="number")
-      .map(k=>posts[k].score);
-    return s.length?{avg:s.reduce((a,b)=>a+b,0)/s.length,n:s.length}:null;
+  const todayScore=posts=>{
+    const p=(posts||{})[todayKey];
+    return p&&typeof p.score==="number"?{avg:p.score}:null;
   };
   const entrants=[];
-  const mine=avgOf(records);
+  const mine=todayScore(records);
   if(mine)entrants.push({name:profile.name||"YOU",color:profile.color,avatar:profile.avatar,self:true,...mine});
   Object.values(cloudPeers).forEach(f=>{
-    const a=avgOf(f.posts);
+    const a=todayScore(f.posts);
     if(a)entrants.push({name:f.name||"friend",color:f.color||"#7f8fa6",avatar:f.avatar,self:false,...a});
   });
   Object.values(friends).forEach(f=>{
-    const a=avgOf(f.posts);
+    const a=todayScore(f.posts);
     if(a)entrants.push({name:f.name,color:f.color||"#7f8fa6",avatar:f.avatar,self:false,...a});
   });
-  if(!entrants.length){box.innerHTML='<div class="empty-friends">NO SCORES YET</div>';return;}
+  if(!entrants.length){box.innerHTML='<div class="empty-friends">NO SHOTS TODAY YET</div>';return;}
   entrants.sort((a,b)=>b.avg-a.avg);
   entrants.forEach((e,i)=>{
     const row=document.createElement("div");
@@ -933,7 +949,7 @@ function makePcell(key){
   const r=records[key],d=parseYmd(key);
   const c=document.createElement("div");
   c.className="pcell";
-  c.style.backgroundImage=`url(${r.photo})`;
+  c.style.backgroundImage=`url(${r.thumb||r.photo})`;
   c.innerHTML=`<span class="dtag">${d.getDate()}</span><span class="ctag" style="background:${r.color}"></span>`;
   c.addEventListener("click",()=>openModal(key));
   return c;
@@ -1143,6 +1159,8 @@ if("serviceWorker" in navigator){
 }
 </script>
 <script>
+/* ▼ App Check (reCAPTCHA v3) サイトキー：セットアップ後にここへ */
+window.IRO_APPCHECK_SITE_KEY = null;
 /* ▼ Firebase設定 */
 window.IRO_FIREBASE_CONFIG = {
   apiKey: "AIzaSyDXZnlp_itlFRwtlYzGH6rSE7waaN1cdi0",
@@ -1160,6 +1178,12 @@ try{
   const {getAuth,signInAnonymously}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js");
   const FS=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js");
   const app=initializeApp(window.IRO_FIREBASE_CONFIG);
+  if(window.IRO_APPCHECK_SITE_KEY){
+    try{
+      const {initializeAppCheck,ReCaptchaV3Provider}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-app-check.js");
+      initializeAppCheck(app,{provider:new ReCaptchaV3Provider(window.IRO_APPCHECK_SITE_KEY),isTokenAutoRefreshEnabled:true});
+    }catch(e){console.warn("App Check init failed",e);}
+  }
   const db=FS.getFirestore(app);
   const auth=getAuth(app);
   const cred=await signInAnonymously(auth);
@@ -1219,7 +1243,7 @@ try{
   mine.docs.forEach(d=>{
     if(!records[d.id]){
       const p=d.data();
-      records[d.id]={date:p.date,color:p.color,name:p.name,en:p.en,photo:p.photo,score:p.score,rank:p.rank};
+      records[d.id]={date:p.date,color:p.color,name:p.name,en:p.en,photo:p.photo,thumb:p.thumb||null,score:p.score,rank:p.rank};
       restored=true;
     }
   });
