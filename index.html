@@ -317,6 +317,31 @@
   .rankrow .pct{font-weight:900;font-size:15px;flex:0 0 auto;}
   .rankrow .rn .you{font-size:8px;font-weight:900;letter-spacing:.12em;color:var(--accent2);margin-left:6px;}
 
+  /* ---------- legal / consent ---------- */
+  .sheet.legal{max-height:82dvh;display:flex;flex-direction:column;}
+  .legal-body{overflow-y:auto;padding:18px 18px 6px;font-size:12px;line-height:1.75;color:var(--muted);}
+  .legal-body h3{color:var(--ink);font-size:15px;margin:14px 0 4px;letter-spacing:.06em;}
+  .legal-body h3:first-child{margin-top:0;}
+  .legal-body h4{color:var(--ink);font-size:12px;margin:12px 0 2px;}
+  .legal-body p{margin:2px 0 6px;}
+  .legal-body .ld{font-size:10px;color:var(--faint);}
+  .consent{
+    position:fixed;inset:0;z-index:60;background:var(--bg);
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  .consent-box{max-width:360px;width:100%;}
+  .consent-box .c1{font-size:13px;color:var(--muted);margin:10px 0 14px;}
+  .consent-box ul{margin:0 0 16px;padding-left:18px;font-size:12px;line-height:1.8;color:var(--muted);}
+  .consent-box .linklike{
+    display:block;background:none;border:none;color:var(--accent2);cursor:pointer;
+    font-family:inherit;font-size:12px;padding:0;margin:0 0 18px;text-decoration:underline;
+  }
+  .consent-box #agreeBtn{
+    width:100%;border:none;background:var(--grad);color:#0c0d10;border-radius:16px;
+    font-family:inherit;font-size:14px;font-weight:800;letter-spacing:.08em;
+    padding:15px 0;cursor:pointer;
+  }
+
   /* feed */
   .feed{display:flex;flex-direction:column;gap:14px;}
   .post{
@@ -476,7 +501,62 @@
       <h2>FRIENDS</h2>
       <div id="friendList"></div>
     </div>
+    <div class="fnote" id="openLegal" style="cursor:pointer;padding:4px 0 10px;">TERMS &amp; PRIVACY</div>
   </section>
+</div>
+
+<!-- 利用規約・プライバシーポリシー -->
+<div class="modal hidden" id="legalModal">
+  <div class="sheet legal">
+    <div class="legal-body">
+      <h3>利用規約</h3>
+      <p class="ld">最終更新日：2026年7月15日</p>
+      <h4>第1条（本アプリについて）</h4>
+      <p>IRO（以下「本アプリ」）は、個人が趣味で運営する無料の写真日記アプリです。内容の変更・提供の中断・終了を予告なく行うことがあります。</p>
+      <h4>第2条（投稿とデータ）</h4>
+      <p>撮影した写真と記録はお使いの端末内に保存されます。フォロー機能を利用する場合、写真・ニックネーム・アバター画像・スコア・コメント・いいねがクラウド（Google Firebase）に保存され、本アプリの他の利用者から閲覧されることがあります。</p>
+      <h4>第3条（禁止事項）</h4>
+      <p>次の投稿・行為を禁止します。(1) 他人が写った写真を本人の同意なく投稿すること (2) 他人の著作物を権利者の許可なく投稿すること (3) 誹謗中傷・わいせつ・差別的な内容 (4) 法令または公序良俗に反する行為 (5) 本アプリの運営を妨害する行為・不正アクセス。</p>
+      <h4>第4条（投稿の権利と責任）</h4>
+      <p>投稿された写真・コメントの権利は投稿者に帰属します。投稿内容に関する一切の責任は投稿者本人が負い、第三者との紛争は投稿者の責任と費用で解決するものとします。運営者は、本規約に違反する投稿を予告なく削除できます。</p>
+      <h4>第5条（免責）</h4>
+      <p>本アプリは現状のまま無保証で提供されます。データの消失・機能の不具合・利用者間のトラブル・本アプリの利用または利用不能から生じた損害について、運営者は故意または重過失による場合を除き、一切の責任を負いません。</p>
+      <h4>第6条（アカウント）</h4>
+      <p>アカウントは端末ごとに自動作成される匿名アカウントです。機種変更・端末初期化によりアカウントとデータが失われることがあります。アカウントとクラウド上のデータの削除を希望する場合は、第9条の連絡先にフレンドコードを添えてご連絡ください。</p>
+      <h4>第7条（対象年齢）</h4>
+      <p>13歳未満の方は、保護者の同意を得た上でご利用ください。</p>
+      <h4>第8条（規約の変更・準拠法）</h4>
+      <p>本規約はアプリ内に掲示した時点で効力を生じます。本規約は日本法に準拠します。</p>
+      <h4>第9条（連絡先）</h4>
+      <p>不適切な投稿の通報・削除依頼・お問い合わせ：<br>https://github.com/qingmujihe-ctrl/iro-nikki/issues</p>
+
+      <h3>プライバシーポリシー</h3>
+      <h4>1. 取得する情報</h4>
+      <p>(1) 投稿した写真とその縮小画像 (2) ニックネーム・アバター画像 (3) 色の一致スコア (4) コメント・いいね (5) 匿名認証ID・フレンドコード。氏名・住所・電話番号・メールアドレス等は取得しません。</p>
+      <h4>2. 利用目的</h4>
+      <p>本アプリの機能（記録・フォロー・タイムライン・ランキング）の提供のためにのみ利用します。広告・マーケティング目的では利用しません。</p>
+      <h4>3. 保存先と第三者提供</h4>
+      <p>データは端末内および Google Firebase（Cloud Firestore）に保存されます。法令に基づく場合を除き、第三者に提供しません。不正利用対策として Google reCAPTCHA を利用しており、Googleに端末の技術情報が送信されます。</p>
+      <h4>4. 削除</h4>
+      <p>投稿はアプリ内でいつでも削除できます（クラウド側も同時に削除されます）。アカウント単位の削除は上記連絡先にご依頼ください。</p>
+    </div>
+    <div class="btns"><button id="legalClose">CLOSE</button></div>
+  </div>
+</div>
+
+<!-- 初回同意 -->
+<div class="consent hidden" id="consent">
+  <div class="consent-box">
+    <div class="logo" style="font-size:30px;">IRO<span class="grad">.</span></div>
+    <p class="c1">1日1色。今日の色を見つけて撮る、写真日記。</p>
+    <ul>
+      <li>写真はあなたの端末と、フォロー機能のためのクラウドに保存されます</li>
+      <li>人が写る写真は、本人の同意を得てから投稿してください</li>
+      <li>投稿内容の責任は投稿者にあります</li>
+    </ul>
+    <button class="linklike" id="consentTerms">利用規約・プライバシーポリシーを読む</button>
+    <button id="agreeBtn">同意してはじめる</button>
+  </div>
 </div>
 
 <!-- bottom nav -->
@@ -1151,6 +1231,20 @@ $("avatarInput").addEventListener("change",e=>{
     img.src=ev.target.result;
   };
   rd.readAsDataURL(f);
+});
+
+/* ================= legal / consent ================= */
+const openLegalModal=()=>$("legalModal").classList.remove("hidden");
+$("openLegal").addEventListener("click",openLegalModal);
+$("consentTerms").addEventListener("click",openLegalModal);
+$("legalClose").addEventListener("click",()=>$("legalModal").classList.add("hidden"));
+$("legalModal").addEventListener("click",e=>{if(e.target===$("legalModal"))$("legalModal").classList.add("hidden");});
+if(!localStorage.getItem("iro-nikki-consent")){
+  $("consent").classList.remove("hidden");
+}
+$("agreeBtn").addEventListener("click",()=>{
+  localStorage.setItem("iro-nikki-consent",new Date().toISOString());
+  $("consent").classList.add("hidden");
 });
 
 /* ================= PWA ================= */
