@@ -266,6 +266,41 @@
   }
   .lkbtn.liked{color:#ff6b81;}
   .lkbtn:active{transform:scale(1.2);}
+  .footR{display:flex;align-items:center;gap:10px;}
+  .cmtn{color:var(--muted);font-size:12px;font-weight:800;}
+
+  /* ---------- comments ---------- */
+  .cmts{max-height:170px;overflow-y:auto;padding:2px 16px 10px;display:flex;flex-direction:column;gap:7px;}
+  .cmt{font-size:12px;line-height:1.45;word-break:break-word;}
+  .cmt b{font-weight:800;margin-right:7px;}
+  .cmt .t{color:var(--ink);}
+  .cmt-none{color:var(--faint);font-size:9px;letter-spacing:.2em;font-weight:800;text-align:center;padding:4px 0;}
+  .cmtrow{display:flex;gap:8px;padding:10px 14px 14px;border-top:1px solid var(--line);}
+  #cmtInput{
+    flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line);border-radius:999px;
+    color:var(--ink);font-family:inherit;font-size:12px;font-weight:600;padding:9px 14px;outline:none;
+  }
+  #cmtInput:focus{border-color:var(--accent);}
+  #cmtSend{
+    flex:0 0 auto;border:none;background:var(--grad);color:#0c0d10;border-radius:999px;
+    font-family:inherit;font-size:10px;font-weight:900;letter-spacing:.14em;padding:0 16px;cursor:pointer;
+  }
+
+  /* ---------- ranking ---------- */
+  .rankrow{display:flex;align-items:center;gap:11px;padding:8px 0;border-bottom:1px solid var(--line);}
+  .rankrow:first-of-type{padding-top:0;}
+  .rankrow:last-of-type{border-bottom:none;padding-bottom:0;}
+  .rankrow .pos{width:24px;text-align:center;font-weight:900;font-size:15px;font-style:italic;color:var(--faint);flex:0 0 auto;}
+  .rankrow.top1 .pos{color:#ffd23f;}
+  .rankrow.top2 .pos{color:#c0c8d4;}
+  .rankrow.top3 .pos{color:#e17055;}
+  .rankrow .avatar{width:32px;height:32px;font-size:12px;}
+  .rankrow .rinfo{flex:1;min-width:0;}
+  .rankrow .rn{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rankrow .rbar{height:4px;border-radius:99px;background:var(--surface2);margin-top:5px;overflow:hidden;}
+  .rankrow .rbar i{display:block;height:100%;background:var(--grad);border-radius:99px;}
+  .rankrow .pct{font-weight:900;font-size:15px;flex:0 0 auto;}
+  .rankrow .rn .you{font-size:8px;font-weight:900;letter-spacing:.12em;color:var(--accent2);margin-left:6px;}
 
   /* feed */
   .feed{display:flex;flex-direction:column;gap:14px;}
@@ -370,6 +405,11 @@
     </div>
 
     <div class="panel">
+      <h2>SYNC RANKING · LAST 30 DAYS</h2>
+      <div id="rankingList"></div>
+    </div>
+
+    <div class="panel">
       <div class="seg">
         <button class="on" id="segMonthly">MONTHLY</button>
         <button id="segPhotos">ALL PHOTOS</button>
@@ -401,7 +441,6 @@
           <input id="followInput" maxlength="6" placeholder="FRIEND CODE" autocomplete="off" />
           <button class="wbtn slim grad" id="followBtn">FOLLOW</button>
         </div>
-        <div id="followingList" style="margin-top:12px;"></div>
       </div>
     </div>
 
@@ -456,6 +495,11 @@
         <div class="r" id="mRank"></div>
         <div class="s" id="mScore"></div>
       </div>
+    </div>
+    <div class="cmts hidden" id="mCmts"></div>
+    <div class="cmtrow hidden" id="mCmtRow">
+      <input id="cmtInput" maxlength="120" placeholder="ADD A COMMENT…" autocomplete="off" />
+      <button id="cmtSend">POST</button>
     </div>
     <div class="btns">
       <button class="danger" id="mDel">DELETE</button>
@@ -718,9 +762,10 @@ function renderAlbum(){
   const scores=keys.map(k=>records[k].score).filter(s=>typeof s==="number");
   $("stAvg").textContent=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"–";
 
-  /* albums */
+  /* albums + ranking */
   renderMonthly(keys);
   renderPhotos(keys);
+  renderRanking();
 
   /* feed: own + local friends + cloud follows, newest first */
   const feed=$("feed");feed.innerHTML="";
@@ -767,7 +812,10 @@ function renderAlbum(){
       <img src="${r.photo}" alt="" loading="lazy" />
       <div class="foot">
         <span>${esc(r.en||"")} ${esc((r.color||"").toUpperCase())}</span>
-        ${likedBy?`<button class="lkbtn ${liked?"liked":""}">${liked?"♥":"♡"}${likedBy.length?" "+likedBy.length:""}</button>`:""}
+        <span class="footR">
+          ${p.cloud&&p.cloud.commentCount>0?`<span class="cmtn">💬 ${p.cloud.commentCount}</span>`:""}
+          ${likedBy?`<button class="lkbtn ${liked?"liked":""}">${liked?"♥":"♡"}${likedBy.length?" "+likedBy.length:""}</button>`:""}
+        </span>
       </div>`;
     post.addEventListener("click",()=>openModal(p.key,p.owner));
     const lk=post.querySelector(".lkbtn");
@@ -776,6 +824,44 @@ function renderAlbum(){
       if(window.cloud&&p.ownerUid)window.cloud.toggleLike(p.ownerUid,p.key,liked);
     });
     feed.appendChild(post);
+  });
+}
+
+/* ================= ranking ================= */
+function renderRanking(){
+  const box=$("rankingList");box.innerHTML="";
+  const cutoff=new Date(now);cutoff.setDate(cutoff.getDate()-29);
+  const cutKey=ymd(cutoff);
+  const avgOf=posts=>{
+    const s=Object.keys(posts||{})
+      .filter(k=>k>=cutKey&&k<=todayKey&&typeof posts[k].score==="number")
+      .map(k=>posts[k].score);
+    return s.length?{avg:s.reduce((a,b)=>a+b,0)/s.length,n:s.length}:null;
+  };
+  const entrants=[];
+  const mine=avgOf(records);
+  if(mine)entrants.push({name:profile.name||"YOU",color:profile.color,avatar:profile.avatar,self:true,...mine});
+  Object.values(cloudPeers).forEach(f=>{
+    const a=avgOf(f.posts);
+    if(a)entrants.push({name:f.name||"friend",color:f.color||"#7f8fa6",avatar:f.avatar,self:false,...a});
+  });
+  Object.values(friends).forEach(f=>{
+    const a=avgOf(f.posts);
+    if(a)entrants.push({name:f.name,color:f.color||"#7f8fa6",avatar:f.avatar,self:false,...a});
+  });
+  if(!entrants.length){box.innerHTML='<div class="empty-friends">NO SCORES YET</div>';return;}
+  entrants.sort((a,b)=>b.avg-a.avg);
+  entrants.forEach((e,i)=>{
+    const row=document.createElement("div");
+    row.className="rankrow"+(i<3?" top"+(i+1):"");
+    row.appendChild(Object.assign(document.createElement("div"),{className:"pos",textContent:i+1}));
+    row.appendChild(avatarEl(e.name,e.color,e.avatar));
+    const info=document.createElement("div");info.className="rinfo";
+    info.innerHTML=`<div class="rn">${esc(e.name)}${e.self?'<span class="you">YOU</span>':""}</div>
+      <div class="rbar"><i style="width:${Math.round(e.avg)}%"></i></div>`;
+    row.appendChild(info);
+    row.appendChild(Object.assign(document.createElement("div"),{className:"pct",textContent:Math.round(e.avg)+"%"}));
+    box.appendChild(row);
   });
 }
 
@@ -822,7 +908,9 @@ $("segPhotos").addEventListener("click",()=>{
 });
 
 /* ================= modal ================= */
-const modal=$("modal");let modalKey=null;
+const modal=$("modal");let modalKey=null,cmtUnsub=null,modalOwnerUid=null;
+function stopComments(){if(cmtUnsub){try{cmtUnsub();}catch(e){}cmtUnsub=null;}}
+function closeModal(){modal.classList.add("hidden");modalKey=null;modalOwnerUid=null;stopComments();$("cmtInput").value="";}
 function openModal(key,owner="me"){
   let r,who;
   if(owner==="me"){r=records[key];who=profile.name||"YOU";}
@@ -840,6 +928,23 @@ function openModal(key,owner="me"){
   $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
   $("mColor").textContent=r.name+" · "+(r.en||"")+" "+r.color.toUpperCase();
   $("mDel").style.display=owner==="me"?"":"none";
+  /* comments (cloud posts only) */
+  stopComments();
+  const ownerUid=owner==="me"?myUid:(owner.startsWith("peer:")?owner.slice(5):null);
+  modalOwnerUid=ownerUid;
+  const cloudBacked=!!(window.cloud&&ownerUid&&(owner!=="me"||cloudSelfPosts[key]));
+  $("mCmts").classList.toggle("hidden",!cloudBacked);
+  $("mCmtRow").classList.toggle("hidden",!cloudBacked);
+  if(cloudBacked){
+    $("mCmts").innerHTML='<div class="cmt-none">LOADING…</div>';
+    cmtUnsub=window.cloud.listenComments(ownerUid,key,list=>{
+      if(list===null){$("mCmts").innerHTML='<div class="cmt-none">COMMENTS UNAVAILABLE</div>';return;}
+      $("mCmts").innerHTML=list.length
+        ?list.map(c=>`<div class="cmt"><b>${esc(c.name)}</b><span class="t">${esc(c.text)}</span></div>`).join("")
+        :'<div class="cmt-none">NO COMMENTS YET</div>';
+      $("mCmts").scrollTop=$("mCmts").scrollHeight;
+    });
+  }
   if(typeof r.score==="number"){
     const rk=rankOf(r.score);
     $("mRank").textContent=rk.t;
@@ -848,18 +953,25 @@ function openModal(key,owner="me"){
   }else{$("mRank").textContent="";$("mScore").textContent="";}
   modal.classList.remove("hidden");
 }
-$("mClose").addEventListener("click",()=>{modal.classList.add("hidden");modalKey=null;});
-modal.addEventListener("click",e=>{if(e.target===modal){modal.classList.add("hidden");modalKey=null;}});
+$("mClose").addEventListener("click",closeModal);
+modal.addEventListener("click",e=>{if(e.target===modal)closeModal();});
+function sendComment(){
+  const text=$("cmtInput").value.trim();
+  if(!text||!modalKey||!modalOwnerUid||!window.cloud)return;
+  window.cloud.addComment(modalOwnerUid,modalKey.key,text);
+  $("cmtInput").value="";
+}
+$("cmtSend").addEventListener("click",sendComment);
+$("cmtInput").addEventListener("keydown",e=>{if(e.key==="Enter")sendComment();});
 $("mDel").addEventListener("click",()=>{
   if(!modalKey||modalKey.owner!=="me")return;
   if(confirm("Delete this entry?")){
     const k=modalKey.key;
     delete records[k];save(records);
     if(window.cloud)window.cloud.deletePost(k);
-    modal.classList.add("hidden");
+    closeModal();
     renderAlbum();
     if(k===todayKey)location.reload();
-    modalKey=null;
   }
 });
 
@@ -924,10 +1036,26 @@ function renderFriends(){
   av.replaceWith(nav);
   $("meName").value=profile.name||"";
 
-  /* friend list */
+  /* friend list: cloud follows + local (file/bot) friends */
   const list=$("friendList");list.innerHTML="";
-  const ids=Object.keys(friends);
-  if(!ids.length){list.innerHTML='<div class="empty-friends">NO FRIENDS YET</div>';}
+  const peerIds=Object.keys(cloudPeers), ids=Object.keys(friends);
+  if(!peerIds.length&&!ids.length){list.innerHTML='<div class="empty-friends">NO FRIENDS YET</div>';}
+  peerIds.forEach(puid=>{
+    const f=cloudPeers[puid];
+    const row=document.createElement("div");row.className="frow";
+    row.appendChild(avatarEl(f.name,f.color||"#7f8fa6",f.avatar));
+    const info=document.createElement("div");
+    const n=Object.keys(f.posts||{}).length;
+    info.innerHTML=`<div class="fn">${esc(f.name||"friend")}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"} · CLOUD</div>`;
+    row.appendChild(info);
+    const btn=document.createElement("button");
+    btn.className="act";btn.textContent="UNFOLLOW";
+    btn.addEventListener("click",()=>{
+      if(confirm("Unfollow @"+(f.name||"friend")+"?")&&window.cloud)window.cloud.unfollow(puid);
+    });
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
   ids.forEach(id=>{
     const f=friends[id];
     const row=document.createElement("div");row.className="frow";
@@ -1092,28 +1220,8 @@ try{
     refresh();
   });
 
-  /* following list UI */
-  function renderFollowing(){
-    const box=$("followingList");box.innerHTML="";
-    const uids=Object.keys(cloudPeers);
-    if(!uids.length){box.innerHTML='<div class="empty-friends">NOT FOLLOWING ANYONE YET</div>';return;}
-    uids.forEach(puid=>{
-      const f=cloudPeers[puid];
-      const row=document.createElement("div");row.className="frow";
-      row.appendChild(avatarEl(f.name,f.color||"#7f8fa6",f.avatar));
-      const info=document.createElement("div");
-      const n=Object.keys(f.posts||{}).length;
-      info.innerHTML=`<div class="fn">${esc(f.name||"friend")}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"} · CLOUD</div>`;
-      row.appendChild(info);
-      const btn=document.createElement("button");
-      btn.className="act";btn.textContent="UNFOLLOW";
-      btn.addEventListener("click",()=>{
-        if(confirm("Unfollow @"+(f.name||"friend")+"?"))FS.deleteDoc(FS.doc(db,"users",uid,"follows",puid));
-      });
-      row.appendChild(btn);
-      box.appendChild(row);
-    });
-  }
+  /* friend list re-render (unified list lives in the FRIENDS panel) */
+  const renderFollowing=()=>{if($("viewFriends").classList.contains("on"))renderFriends();};
 
   /* live: follows -> per-peer listeners */
   const peerUnsubs={};
@@ -1170,6 +1278,19 @@ try{
     },
     setName(n){me.name=n;FS.updateDoc(meRef,{name:n}).catch(()=>{});},
     setAvatar(a){me.avatar=a;FS.updateDoc(meRef,{avatar:a||null}).catch(()=>{});},
+    unfollow(puid){FS.deleteDoc(FS.doc(db,"users",uid,"follows",puid)).catch(()=>{});},
+    listenComments(owner,date,cb){
+      return FS.onSnapshot(
+        FS.query(FS.collection(db,"users",owner,"posts",date,"comments"),FS.orderBy("at","asc"),FS.limit(100)),
+        s=>{const arr=[];s.forEach(d=>arr.push(d.data()));cb(arr);},
+        ()=>cb(null));
+    },
+    addComment(owner,date,text){
+      FS.addDoc(FS.collection(db,"users",owner,"posts",date,"comments"),
+        {uid,name:me.name||"YOU",text,at:Date.now()}).catch(()=>{});
+      FS.updateDoc(FS.doc(db,"users",owner,"posts",date),
+        {commentCount:FS.increment(1)}).catch(()=>{});
+    },
   };
 }catch(e){
   $("cloudStatus").textContent="CLOUD ERROR";
