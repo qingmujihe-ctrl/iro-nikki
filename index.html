@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0c0d10" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" type="image/png" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="IRO" />
+<title>IRO — 色日記</title>
+<style>
+  :root{
+    --bg:#0c0d10; --bg2:#14161b; --surface:#1b1e25; --surface2:#22262f;
+    --ink:#f2f3f5; --muted:#8b919c; --faint:#4a4f59; --line:#2a2e38;
+    --accent:#7c5cff; --accent2:#00d4ff;
+    --grad:linear-gradient(135deg,#7c5cff,#00d4ff);
+    --r-lg:22px; --r-md:16px; --r-sm:10px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Kaku Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.5;
+    min-height:100dvh; -webkit-font-smoothing:antialiased;
+    padding-bottom:calc(76px + env(safe-area-inset-bottom));
+  }
+  .app{max-width:520px;margin:0 auto;padding:0 14px;}
+
+  /* ---------- top bar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:calc(12px + env(safe-area-inset-top)) 4px 10px;
+    position:sticky;top:0;z-index:10;
+    background:linear-gradient(var(--bg) 70%,transparent);
+  }
+  .logo{font-size:22px;font-weight:800;letter-spacing:.06em;}
+  .logo .grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .topbar .day{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.08em;}
+
+  /* ---------- tabs (bottom nav) ---------- */
+  .nav{
+    position:fixed;left:0;right:0;bottom:0;z-index:30;
+    background:rgba(16,17,22,.92);backdrop-filter:blur(16px);
+    border-top:1px solid var(--line);
+    padding:8px 0 calc(8px + env(safe-area-inset-bottom));
+  }
+  .nav-inner{max-width:520px;margin:0 auto;display:flex;}
+  .nav button{
+    flex:1;background:none;border:none;color:var(--faint);cursor:pointer;
+    font-family:inherit;font-size:10px;font-weight:700;letter-spacing:.16em;
+    display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;
+    transition:color .15s;
+  }
+  .nav button .ico{font-size:21px;line-height:1;filter:grayscale(1) opacity(.55);transition:filter .15s;}
+  .nav button.on{color:var(--ink);}
+  .nav button.on .ico{filter:none;}
+
+  .view{display:none;}
+  .view.on{display:block;animation:fadein .18s ease;}
+  @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---------- daily color banner ---------- */
+  .quest{
+    display:flex;align-items:center;gap:14px;
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r-lg);padding:14px 16px;margin-bottom:14px;
+  }
+  .quest .chip{
+    width:56px;height:56px;border-radius:50%;flex:0 0 auto;position:relative;
+  }
+  .quest .chip::before{
+    content:"";position:absolute;inset:-4px;border-radius:50%;
+    background:var(--grad);z-index:-1;
+  }
+  .quest .chip::after{
+    content:"";position:absolute;inset:-1px;border-radius:50%;
+    border:3px solid var(--bg);
+  }
+  .quest .t1{font-size:10px;font-weight:700;letter-spacing:.22em;color:var(--muted);}
+  .quest .t2{font-size:21px;font-weight:800;line-height:1.25;}
+  .quest .t3{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.05em;}
+
+  /* ---------- camera stage ---------- */
+  .stage{
+    position:relative;border-radius:var(--r-lg);overflow:hidden;
+    background:var(--bg2);aspect-ratio:3/4;
+    border:1px solid var(--line);
+  }
+  .stage video,.stage img{width:100%;height:100%;object-fit:cover;display:block;}
+  .stage .idle{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:10px;color:var(--muted);
+    text-align:center;padding:24px;font-size:13px;
+  }
+  .stage .idle .big{font-size:44px;}
+  .stage .idle .tagline{font-size:10px;font-weight:800;letter-spacing:.3em;color:var(--faint);}
+  .hidden{display:none!important;}
+
+  /* result overlay */
+  .result{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:40px 18px 16px;
+    background:linear-gradient(transparent,rgba(0,0,0,.78));
+    display:flex;align-items:flex-end;justify-content:space-between;gap:10px;
+  }
+  .result .rank{
+    font-size:24px;font-weight:900;letter-spacing:.04em;font-style:italic;
+    text-shadow:0 2px 14px rgba(0,0,0,.5);
+  }
+  .result .sub{font-size:11px;font-weight:700;letter-spacing:.18em;color:rgba(255,255,255,.75);}
+  .scorering{
+    --p:0; width:64px;height:64px;border-radius:50%;flex:0 0 auto;position:relative;
+    background:conic-gradient(var(--accent2) calc(var(--p)*1%),rgba(255,255,255,.14) 0);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .scorering::before{content:"";position:absolute;inset:5px;border-radius:50%;background:rgba(10,10,14,.85);}
+  .scorering span{position:relative;font-size:17px;font-weight:800;}
+  .scorering small{position:relative;font-size:8px;font-weight:700;color:var(--muted);margin-left:1px;}
+
+  /* analyzing */
+  .analyzing{
+    position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;
+    align-items:center;justify-content:center;background:rgba(8,9,12,.55);backdrop-filter:blur(3px);
+  }
+  .analyzing .txt{font-size:11px;font-weight:800;letter-spacing:.3em;color:var(--ink);}
+  .spinner{width:34px;height:34px;border-radius:50%;border:3px solid rgba(255,255,255,.15);border-top-color:var(--accent2);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  /* ---------- camera controls ---------- */
+  .ctrl{display:flex;align-items:center;justify-content:center;gap:34px;padding:18px 0 6px;}
+  .shutter{
+    width:74px;height:74px;border-radius:50%;border:4px solid #fff;
+    background:transparent;cursor:pointer;position:relative;padding:0;
+  }
+  .shutter::after{
+    content:"";position:absolute;inset:5px;border-radius:50%;background:#fff;
+    transition:transform .1s ease;
+  }
+  .shutter:active::after{transform:scale(.85);}
+  .shutter:disabled{opacity:.3;}
+  .sidebtn{
+    width:46px;height:46px;border-radius:50%;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);font-size:19px;cursor:pointer;
+  }
+  .donebox{
+    text-align:center;padding:16px 0 4px;color:var(--muted);font-size:13px;
+  }
+  .donebox b{color:var(--ink);}
+
+  input[type=file]{display:none;}
+
+  /* ---------- album ---------- */
+  .stats{display:flex;gap:10px;margin-bottom:14px;}
+  .stat{
+    flex:1;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r-md);padding:12px 8px;text-align:center;
+  }
+  .stat .num{font-size:22px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .stat .lbl{font-size:9px;font-weight:700;color:var(--muted);letter-spacing:.18em;margin-top:3px;}
+
+  .panel{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r-lg);padding:16px;margin-bottom:14px;
+  }
+  .panel h2{margin:0 0 12px;font-size:11px;font-weight:800;letter-spacing:.24em;color:var(--muted);}
+  /* segmented control */
+  .seg{
+    display:flex;gap:4px;background:var(--bg2);border:1px solid var(--line);
+    border-radius:999px;padding:4px;margin-bottom:14px;
+  }
+  .seg button{
+    flex:1;border:none;background:none;color:var(--faint);cursor:pointer;
+    font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.2em;
+    padding:8px 0;border-radius:999px;transition:all .15s;
+  }
+  .seg button.on{background:var(--surface2);color:var(--ink);}
+
+  /* photo grids */
+  .month-block{margin-bottom:18px;}
+  .month-block:last-child{margin-bottom:2px;}
+  .month-head{
+    display:flex;align-items:baseline;gap:8px;margin-bottom:8px;
+  }
+  .month-head .m{font-size:16px;font-weight:800;letter-spacing:.06em;}
+  .month-head .c{font-size:10px;font-weight:700;color:var(--faint);letter-spacing:.14em;}
+  .pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;border-radius:var(--r-sm);overflow:hidden;}
+  .pcell{
+    aspect-ratio:1/1;background-size:cover;background-position:center;
+    cursor:pointer;position:relative;background-color:var(--surface2);
+  }
+  .pcell:active{opacity:.75;}
+  .pcell .dtag{
+    position:absolute;left:5px;top:5px;font-size:9px;font-weight:800;
+    color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.7);letter-spacing:.05em;
+  }
+  .pcell .ctag{
+    position:absolute;right:5px;bottom:5px;width:10px;height:10px;border-radius:50%;
+    box-shadow:0 0 0 1.5px rgba(0,0,0,.35);
+  }
+  .empty-album{text-align:center;color:var(--faint);font-size:11px;font-weight:700;letter-spacing:.2em;padding:30px 0;}
+
+  /* ---------- friends ---------- */
+  .me-row{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+  .avatar{
+    width:44px;height:44px;border-radius:50%;flex:0 0 auto;
+    display:flex;align-items:center;justify-content:center;
+    font-weight:900;font-size:16px;color:#0c0d10;
+  }
+  #meName{
+    flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line);
+    border-radius:12px;color:var(--ink);font-family:inherit;font-size:14px;
+    font-weight:700;padding:10px 12px;letter-spacing:.06em;outline:none;
+  }
+  #meName:focus{border-color:var(--accent);}
+  .frow-btns{display:flex;gap:8px;}
+  .wbtn{
+    flex:1;background:var(--surface2);border:1px solid var(--line);border-radius:12px;
+    color:var(--ink);font-family:inherit;font-size:10px;font-weight:800;
+    letter-spacing:.14em;padding:11px 0;cursor:pointer;
+  }
+  .wbtn:active{opacity:.7;}
+  .fnote{font-size:9px;color:var(--faint);margin-top:9px;letter-spacing:.08em;text-align:center;font-weight:700;}
+  .frow{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line);}
+  .frow:first-child{padding-top:0;}
+  .frow:last-child{border-bottom:none;padding-bottom:0;}
+  .frow .avatar{width:38px;height:38px;font-size:14px;}
+  .frow .fn{font-size:14px;font-weight:700;line-height:1.25;}
+  .frow .fs{font-size:9px;color:var(--muted);letter-spacing:.12em;font-weight:700;}
+  .frow .act{
+    margin-left:auto;background:none;border:1px solid var(--line);border-radius:999px;
+    color:var(--muted);font-family:inherit;font-size:9px;font-weight:800;
+    letter-spacing:.12em;padding:7px 14px;cursor:pointer;flex:0 0 auto;
+  }
+  .frow .act.follow{border:none;background:var(--grad);color:#0c0d10;}
+  .frow .act:active{opacity:.7;}
+  .empty-friends{text-align:center;color:var(--faint);font-size:10px;font-weight:700;letter-spacing:.2em;padding:18px 0;}
+  .post .head .who{font-size:9px;font-weight:800;letter-spacing:.14em;color:var(--muted);}
+
+  /* feed */
+  .feed{display:flex;flex-direction:column;gap:14px;}
+  .post{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r-lg);overflow:hidden;cursor:pointer;
+  }
+  .post .head{display:flex;align-items:center;gap:10px;padding:11px 14px;}
+  .post .dotc{width:34px;height:34px;border-radius:50%;flex:0 0 auto;border:2px solid var(--line);}
+  .post .head .n{font-size:14px;font-weight:700;line-height:1.2;}
+  .post .head .d{font-size:11px;color:var(--muted);}
+  .post .badge{
+    margin-left:auto;font-size:9px;font-weight:900;letter-spacing:.1em;font-style:italic;
+    padding:4px 9px;border-radius:999px;background:var(--surface2);
+  }
+  .post img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover;}
+  .post .foot{padding:10px 14px;font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.06em;}
+  .empty-feed{text-align:center;color:var(--faint);font-size:13px;padding:34px 0;}
+
+  /* ---------- modal ---------- */
+  .modal{
+    position:fixed;inset:0;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);
+    display:flex;align-items:center;justify-content:center;padding:22px;z-index:50;
+  }
+  .sheet{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+    max-width:380px;width:100%;overflow:hidden;
+  }
+  .sheet img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover;}
+  .sheet .meta{padding:14px 16px;display:flex;align-items:center;gap:12px;}
+  .sheet .sw{width:38px;height:38px;border-radius:50%;flex:0 0 auto;border:2px solid var(--line);}
+  .sheet .d1{font-size:14px;font-weight:700;}
+  .sheet .d2{font-size:11px;color:var(--muted);}
+  .sheet .mrank{margin-left:auto;text-align:right;}
+  .sheet .mrank .r{font-size:12px;font-weight:900;font-style:italic;letter-spacing:.04em;}
+  .sheet .mrank .s{font-size:10px;color:var(--muted);font-weight:700;}
+  .sheet .btns{display:flex;border-top:1px solid var(--line);}
+  .sheet .btns button{
+    flex:1;background:none;border:none;color:var(--muted);font-family:inherit;
+    font-size:12px;font-weight:700;letter-spacing:.1em;padding:13px;cursor:pointer;
+  }
+  .sheet .btns button + button{border-left:1px solid var(--line);}
+  .sheet .btns .danger{color:#ff6b81;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">IRO<span class="grad">.</span></div>
+    <div class="day" id="topDay">—</div>
+  </div>
+
+  <!-- ============ CAMERA VIEW ============ -->
+  <section class="view on" id="viewCam">
+    <div class="quest">
+      <div class="chip" id="qChip"></div>
+      <div>
+        <div class="t1">TODAY'S COLOR</div>
+        <div class="t2" id="qName">—</div>
+        <div class="t3" id="qHex">—</div>
+      </div>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="idle" id="idle">
+        <div class="big">◎</div>
+        <div class="tagline">ONE COLOR · ONE SHOT · ONE DAY</div>
+      </div>
+      <video id="video" playsinline autoplay muted class="hidden"></video>
+      <img id="preview" class="hidden" alt="" />
+      <div class="analyzing hidden" id="analyzing">
+        <div class="spinner"></div>
+        <div class="txt">ANALYZING…</div>
+      </div>
+      <div class="result hidden" id="result">
+        <div>
+          <div class="sub">COLOR SYNC</div>
+          <div class="rank" id="rankTxt">—</div>
+        </div>
+        <div class="scorering" id="ring"><span id="ringNum">0</span><small>%</small></div>
+      </div>
+    </div>
+
+    <div class="ctrl" id="ctrl">
+      <button class="sidebtn" id="pickFile" title="ライブラリ">🖼</button>
+      <button class="shutter" id="shutter" aria-label="撮影"></button>
+      <button class="sidebtn" id="flipCam" title="カメラ切替">⟳</button>
+    </div>
+    <div class="donebox hidden" id="donebox">
+      DONE FOR TODAY — <b>SEE YOU TOMORROW.</b>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" capture="environment" />
+  </section>
+
+  <!-- ============ ALBUM VIEW ============ -->
+  <section class="view" id="viewAlbum">
+    <div class="stats">
+      <div class="stat"><div class="num" id="stTotal">0</div><div class="lbl">SHOTS</div></div>
+      <div class="stat"><div class="num" id="stStreak">0</div><div class="lbl">STREAK</div></div>
+      <div class="stat"><div class="num" id="stColors">0</div><div class="lbl">COLORS</div></div>
+      <div class="stat"><div class="num" id="stAvg">–</div><div class="lbl">AVG SYNC</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="seg">
+        <button class="on" id="segMonthly">MONTHLY</button>
+        <button id="segPhotos">ALL PHOTOS</button>
+      </div>
+      <div id="albumMonthly"></div>
+      <div id="albumPhotos" class="hidden"></div>
+    </div>
+
+    <div class="panel" style="padding:16px 16px 18px;">
+      <h2>TIMELINE</h2>
+      <div class="feed" id="feed"></div>
+    </div>
+  </section>
+
+  <!-- ============ FRIENDS VIEW ============ -->
+  <section class="view" id="viewFriends">
+    <div class="panel">
+      <h2>MY PROFILE</h2>
+      <div class="me-row">
+        <div class="avatar" id="meAvatar"></div>
+        <input id="meName" maxlength="12" placeholder="YOUR NAME" autocomplete="off" />
+      </div>
+      <div class="frow-btns">
+        <button class="wbtn" id="exportBtn">EXPORT MY DIARY</button>
+        <button class="wbtn" id="importBtn">ADD FRIEND FILE</button>
+      </div>
+      <div class="fnote">EXPORT your file &amp; send it — friends IMPORT it to follow you</div>
+      <input type="file" id="importInput" accept=".json,application/json" />
+    </div>
+
+    <div class="panel">
+      <h2>FRIENDS</h2>
+      <div id="friendList"></div>
+    </div>
+
+    <div class="panel">
+      <h2>SUGGESTED</h2>
+      <div id="suggestList"></div>
+    </div>
+  </section>
+</div>
+
+<!-- bottom nav -->
+<nav class="nav">
+  <div class="nav-inner">
+    <button id="tabCam" class="on"><span class="ico">📷</span>CAMERA</button>
+    <button id="tabFriends"><span class="ico">👥</span>FRIENDS</button>
+    <button id="tabAlbum"><span class="ico">🎞</span>ALBUM</button>
+  </div>
+</nav>
+
+<!-- modal -->
+<div class="modal hidden" id="modal">
+  <div class="sheet">
+    <img id="mImg" alt="" />
+    <div class="meta">
+      <div class="sw" id="mSw"></div>
+      <div>
+        <div class="d1" id="mDate"></div>
+        <div class="d2" id="mColor"></div>
+      </div>
+      <div class="mrank">
+        <div class="r" id="mRank"></div>
+        <div class="s" id="mScore"></div>
+      </div>
+    </div>
+    <div class="btns">
+      <button class="danger" id="mDel">DELETE</button>
+      <button id="mClose">CLOSE</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= palette (31 colors) ================= */
+const PALETTE = [
+  {hex:"#e0245e", name:"紅",         en:"CRIMSON"},
+  {hex:"#ff6b35", name:"朱色",       en:"VERMILION"},
+  {hex:"#ff9f1c", name:"山吹色",     en:"AMBER"},
+  {hex:"#ffd23f", name:"向日葵色",   en:"SUNFLOWER"},
+  {hex:"#d4e157", name:"若菜色",     en:"LIME"},
+  {hex:"#7cb518", name:"草色",       en:"GRASS"},
+  {hex:"#2e933c", name:"常盤色",     en:"EVERGREEN"},
+  {hex:"#00b894", name:"青磁色",     en:"CELADON"},
+  {hex:"#00cec9", name:"浅葱色",     en:"TURQUOISE"},
+  {hex:"#0abde3", name:"空色",       en:"CYAN SKY"},
+  {hex:"#54a0ff", name:"露草色",     en:"AZURE"},
+  {hex:"#2e5eaa", name:"瑠璃色",     en:"LAPIS"},
+  {hex:"#1b2a6b", name:"紺色",       en:"NAVY"},
+  {hex:"#6c5ce7", name:"菫色",       en:"VIOLET"},
+  {hex:"#8e44ad", name:"紫紺",       en:"ROYAL PURPLE"},
+  {hex:"#d63cbe", name:"牡丹色",     en:"MAGENTA"},
+  {hex:"#ff7eb9", name:"撫子色",     en:"PINK"},
+  {hex:"#f8a5c2", name:"桜色",       en:"SAKURA"},
+  {hex:"#c0392b", name:"茜色",       en:"MADDER RED"},
+  {hex:"#8d5524", name:"栗色",       en:"CHESTNUT"},
+  {hex:"#c8a165", name:"黄土色",     en:"OCHRE"},
+  {hex:"#e6ccb2", name:"生成り色",   en:"IVORY"},
+  {hex:"#f5f5f5", name:"白",         en:"PURE WHITE"},
+  {hex:"#9e9e9e", name:"鼠色",       en:"ASH GRAY"},
+  {hex:"#3d3d3d", name:"墨色",       en:"SUMI BLACK"},
+  {hex:"#4b6584", name:"藍鼠",       en:"SLATE BLUE"},
+  {hex:"#a3e3c6", name:"薄荷色",     en:"MINT"},
+  {hex:"#f8c8a4", name:"杏色",       en:"APRICOT"},
+  {hex:"#c9bdf0", name:"藤色",       en:"WISTERIA"},
+  {hex:"#7f8fa6", name:"銀鼠",       en:"SILVER"},
+  {hex:"#e17055", name:"珊瑚色",     en:"CORAL"},
+];
+const STORE_KEY = "iro-nikki-records";
+
+/* ================= date utils ================= */
+const pad=n=>String(n).padStart(2,"0");
+const ymd=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const dayNumber=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
+const parseYmd=s=>{const[a,b,c]=s.split("-").map(Number);return new Date(a,b-1,c);};
+function colorForDate(d){
+  const i=((dayNumber(d)*17)%PALETTE.length+PALETTE.length)%PALETTE.length;
+  return PALETTE[i];
+}
+
+/* ================= color science ================= */
+function hexRgb(hex){const h=hex.replace("#","");return[parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
+function rgb2lab(r,g,b){
+  let[x,y,z]=[r,g,b].map(v=>{v/=255;return v>0.04045?Math.pow((v+0.055)/1.055,2.4):v/12.92;});
+  const X=(x*0.4124+y*0.3576+z*0.1805)/0.95047,
+        Y=(x*0.2126+y*0.7152+z*0.0722),
+        Z=(x*0.0193+y*0.1192+z*0.9505)/1.08883;
+  const f=t=>t>0.008856?Math.cbrt(t):(7.787*t)+16/116;
+  const fx=f(X),fy=f(Y),fz=f(Z);
+  return[116*fy-16,500*(fx-fy),200*(fy-fz)];
+}
+const dE=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+
+/* photo vs target: coverage of matching pixels + best cluster closeness */
+function judge(imgEl, targetHex){
+  const S=56, cv=document.createElement("canvas");
+  cv.width=S;cv.height=S;
+  const ctx=cv.getContext("2d");
+  ctx.drawImage(imgEl,0,0,S,S);
+  const data=ctx.getImageData(0,0,S,S).data;
+  const target=rgb2lab(...hexRgb(targetHex));
+  let near=0, close=0, minD=Infinity;
+  const n=S*S;
+  for(let i=0;i<n;i++){
+    const lab=rgb2lab(data[i*4],data[i*4+1],data[i*4+2]);
+    const d=dE(lab,target);
+    if(d<18)near++;
+    if(d<32)close++;
+    if(d<minD)minD=d;
+  }
+  const cov=near/n, covLoose=close/n;
+  // score: sqrt curve so a small found object still scores well,
+  // but only large coverage reaches PERFECT
+  let score = Math.min(1,Math.sqrt(cov*4.5))*62 + Math.min(1,Math.sqrt(covLoose*2.4))*23 + Math.max(0,1-minD/60)*15;
+  score=Math.round(Math.max(2,Math.min(99,score)));
+  return {score, rank:rankOf(score)};
+}
+function rankOf(s){
+  if(s>=85)return{t:"PERFECT MATCH",c:"#00ffb3"};
+  if(s>=65)return{t:"VIVID CATCH",c:"#00d4ff"};
+  if(s>=45)return{t:"CLOSE CALL",c:"#ffd23f"};
+  if(s>=25)return{t:"FAINT ECHO",c:"#ff9f1c"};
+  return{t:"LOST HUE",c:"#ff6b81"};
+}
+
+/* ================= state ================= */
+function load(){try{return JSON.parse(localStorage.getItem(STORE_KEY))||{}}catch(e){return{}}}
+const save=d=>localStorage.setItem(STORE_KEY,JSON.stringify(d));
+let records=load();
+const now=new Date(), todayKey=ymd(now), todayColor=colorForDate(now);
+
+/* friends & profile */
+const FRIENDS_KEY="iro-nikki-friends", PROFILE_KEY="iro-nikki-profile";
+function loadJson(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch(e){return fb}}
+let friends=loadJson(FRIENDS_KEY,{});
+let profile=loadJson(PROFILE_KEY,null);
+if(!profile){
+  profile={id:(crypto.randomUUID?crypto.randomUUID():"me-"+Date.now()),name:"YOU",color:"#7c5cff"};
+  localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));
+}
+const saveFriends=()=>localStorage.setItem(FRIENDS_KEY,JSON.stringify(friends));
+const saveProfile=()=>localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));
+let stream=null, facing="environment", mode="idle";
+
+const $=id=>document.getElementById(id);
+
+/* ================= header / quest ================= */
+$("topDay").textContent=(now.getMonth()+1)+"/"+now.getDate()+" "+["SUN","MON","TUE","WED","THU","FRI","SAT"][now.getDay()];
+$("qChip").style.background=todayColor.hex;
+$("qName").textContent=todayColor.name;
+$("qHex").textContent=todayColor.en+" · "+todayColor.hex.toUpperCase();
+
+/* ================= tabs ================= */
+const VIEWS={cam:["viewCam","tabCam"],friends:["viewFriends","tabFriends"],album:["viewAlbum","tabAlbum"]};
+function switchTab(name){
+  for(const k in VIEWS){
+    $(VIEWS[k][0]).classList.toggle("on",k===name);
+    $(VIEWS[k][1]).classList.toggle("on",k===name);
+  }
+  if(name==="album")renderAlbum();
+  if(name==="friends")renderFriends();
+}
+$("tabCam").addEventListener("click",()=>switchTab("cam"));
+$("tabFriends").addEventListener("click",()=>switchTab("friends"));
+$("tabAlbum").addEventListener("click",()=>switchTab("album"));
+
+/* ================= camera ================= */
+const video=$("video"),preview=$("preview"),idle=$("idle");
+async function startCamera(){
+  stopCamera();
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:false});
+    video.srcObject=stream;
+    idle.classList.add("hidden");
+    preview.classList.add("hidden");
+    video.classList.remove("hidden");
+    mode="live";
+  }catch(e){
+    $("fileInput").click();
+  }
+}
+function stopCamera(){
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  video.classList.add("hidden");
+}
+$("shutter").addEventListener("click",()=>{
+  if(mode!=="live"){startCamera();return;}
+  const w=video.videoWidth,h=video.videoHeight,side=Math.min(w,h);
+  const cv=document.createElement("canvas");const S=720;cv.width=S;cv.height=S;
+  cv.getContext("2d").drawImage(video,(w-side)/2,(h-side)/2,side,side,0,0,S,S);
+  stopCamera();
+  processShot(cv.toDataURL("image/jpeg",0.72));
+});
+$("flipCam").addEventListener("click",()=>{
+  facing=facing==="environment"?"user":"environment";
+  if(mode==="live")startCamera();
+});
+$("pickFile").addEventListener("click",()=>$("fileInput").click());
+$("fileInput").addEventListener("change",e=>{
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      const side=Math.min(img.width,img.height);
+      const cv=document.createElement("canvas");const S=720;cv.width=S;cv.height=S;
+      cv.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,S,S);
+      processShot(cv.toDataURL("image/jpeg",0.72));
+    };
+    img.src=ev.target.result;
+  };
+  rd.readAsDataURL(f);
+});
+
+/* ================= shot -> judge -> commit ================= */
+function processShot(dataUrl){
+  idle.classList.add("hidden");
+  preview.src=dataUrl;
+  preview.classList.remove("hidden");
+  $("analyzing").classList.remove("hidden");
+  mode="judging";
+  const img=new Image();
+  img.onload=()=>{
+    setTimeout(()=>{ // let the analyzing state breathe
+      const {score,rank}=judge(img,todayColor.hex);
+      records[todayKey]={date:todayKey,color:todayColor.hex,name:todayColor.name,en:todayColor.en,photo:dataUrl,score,rank:rank.t};
+      save(records);
+      $("analyzing").classList.add("hidden");
+      showResult(score,rank);
+      lockToday();
+    },900);
+  };
+  img.src=dataUrl;
+}
+function showResult(score,rank){
+  const res=$("result");
+  res.classList.remove("hidden");
+  $("rankTxt").textContent=rank.t;
+  $("rankTxt").style.color=rank.c;
+  const ring=$("ring");
+  ring.style.setProperty("--p",0);
+  $("ringNum").textContent=0;
+  let cur=0;
+  const step=()=>{
+    cur=Math.min(score,cur+Math.max(1,Math.round(score/28)));
+    ring.style.setProperty("--p",cur);
+    $("ringNum").textContent=cur;
+    if(cur<score)requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function lockToday(){
+  $("ctrl").classList.add("hidden");
+  $("donebox").classList.remove("hidden");
+  mode="done";
+}
+
+/* restore today's state */
+if(records[todayKey]){
+  const r=records[todayKey];
+  idle.classList.add("hidden");
+  preview.src=r.photo;
+  preview.classList.remove("hidden");
+  if(typeof r.score==="number")showResult(r.score,rankOf(r.score));
+  lockToday();
+}
+
+/* ================= album ================= */
+function renderAlbum(){
+  const keys=Object.keys(records).sort();
+  /* stats */
+  $("stTotal").textContent=keys.length;
+  $("stColors").textContent=new Set(keys.map(k=>records[k].en)).size;
+  let streak=0,d=new Date(now);
+  if(!records[ymd(d)])d.setDate(d.getDate()-1);
+  while(records[ymd(d)]){streak++;d.setDate(d.getDate()-1);}
+  $("stStreak").textContent=streak;
+  const scores=keys.map(k=>records[k].score).filter(s=>typeof s==="number");
+  $("stAvg").textContent=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"–";
+
+  /* albums */
+  renderMonthly(keys);
+  renderPhotos(keys);
+
+  /* feed: own + friends, newest first */
+  const feed=$("feed");feed.innerHTML="";
+  const posts=[];
+  keys.forEach(k=>posts.push({owner:"me",who:profile.name||"YOU",key:k,r:records[k]}));
+  Object.values(friends).forEach(f=>{
+    Object.keys(f.posts||{}).forEach(k=>{
+      if(k<=todayKey)posts.push({owner:f.id,who:f.name,key:k,r:f.posts[k]});
+    });
+  });
+  posts.sort((a,b)=>a.key===b.key?(a.owner==="me"?-1:1):(a.key<b.key?1:-1));
+  if(!posts.length){
+    feed.innerHTML='<div class="empty-feed">NO POSTS YET</div>';
+    return;
+  }
+  posts.forEach(p=>{
+    const r=p.r,d=parseYmd(p.key);
+    const rk=typeof r.score==="number"?rankOf(r.score):null;
+    const post=document.createElement("div");
+    post.className="post";
+    post.innerHTML=`
+      <div class="head">
+        <div class="dotc" style="background:${r.color}"></div>
+        <div>
+          <div class="n">${r.name} <span class="who">@${p.who}</span></div>
+          <div class="d">${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}</div>
+        </div>
+        ${rk?`<div class="badge" style="color:${rk.c}">${rk.t} · ${r.score}%</div>`:""}
+      </div>
+      <img src="${r.photo}" alt="" loading="lazy" />
+      <div class="foot">${r.en||""} ${r.color.toUpperCase()}</div>`;
+    post.addEventListener("click",()=>openModal(p.key,p.owner));
+    feed.appendChild(post);
+  });
+}
+
+/* ================= albums ================= */
+function makePcell(key){
+  const r=records[key],d=parseYmd(key);
+  const c=document.createElement("div");
+  c.className="pcell";
+  c.style.backgroundImage=`url(${r.photo})`;
+  c.innerHTML=`<span class="dtag">${d.getDate()}</span><span class="ctag" style="background:${r.color}"></span>`;
+  c.addEventListener("click",()=>openModal(key));
+  return c;
+}
+function renderMonthly(keys){
+  const box=$("albumMonthly");box.innerHTML="";
+  if(!keys.length){box.innerHTML='<div class="empty-album">NO POSTS YET</div>';return;}
+  const byMonth={};
+  keys.forEach(k=>{const m=k.slice(0,7);(byMonth[m]=byMonth[m]||[]).push(k);});
+  Object.keys(byMonth).sort().reverse().forEach(m=>{
+    const[y,mo]=m.split("-");
+    const block=document.createElement("div");
+    block.className="month-block";
+    block.innerHTML=`<div class="month-head"><span class="m">${y}.${mo}</span><span class="c">${byMonth[m].length} ${byMonth[m].length===1?"SHOT":"SHOTS"}</span></div>`;
+    const grid=document.createElement("div");grid.className="pgrid";
+    [...byMonth[m]].reverse().forEach(k=>grid.appendChild(makePcell(k)));
+    block.appendChild(grid);
+    box.appendChild(block);
+  });
+}
+function renderPhotos(keys){
+  const box=$("albumPhotos");box.innerHTML="";
+  if(!keys.length){box.innerHTML='<div class="empty-album">NO POSTS YET</div>';return;}
+  const grid=document.createElement("div");grid.className="pgrid";
+  [...keys].reverse().forEach(k=>grid.appendChild(makePcell(k)));
+  box.appendChild(grid);
+}
+$("segMonthly").addEventListener("click",()=>{
+  $("segMonthly").classList.add("on");$("segPhotos").classList.remove("on");
+  $("albumMonthly").classList.remove("hidden");$("albumPhotos").classList.add("hidden");
+});
+$("segPhotos").addEventListener("click",()=>{
+  $("segPhotos").classList.add("on");$("segMonthly").classList.remove("on");
+  $("albumPhotos").classList.remove("hidden");$("albumMonthly").classList.add("hidden");
+});
+
+/* ================= modal ================= */
+const modal=$("modal");let modalKey=null;
+function openModal(key,owner="me"){
+  const r=owner==="me"?records[key]:(friends[owner]&&friends[owner].posts&&friends[owner].posts[key]);
+  if(!r)return;
+  modalKey={key,owner};
+  $("mImg").src=r.photo;
+  $("mSw").style.background=r.color;
+  const d=parseYmd(key);
+  const who=owner==="me"?(profile.name||"YOU"):friends[owner].name;
+  $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
+  $("mColor").textContent=r.name+" · "+(r.en||"")+" "+r.color.toUpperCase();
+  $("mDel").style.display=owner==="me"?"":"none";
+  if(typeof r.score==="number"){
+    const rk=rankOf(r.score);
+    $("mRank").textContent=rk.t;
+    $("mRank").style.color=rk.c;
+    $("mScore").textContent=r.score+"% SYNC";
+  }else{$("mRank").textContent="";$("mScore").textContent="";}
+  modal.classList.remove("hidden");
+}
+$("mClose").addEventListener("click",()=>{modal.classList.add("hidden");modalKey=null;});
+modal.addEventListener("click",e=>{if(e.target===modal){modal.classList.add("hidden");modalKey=null;}});
+$("mDel").addEventListener("click",()=>{
+  if(!modalKey||modalKey.owner!=="me")return;
+  if(confirm("Delete this entry?")){
+    const k=modalKey.key;
+    delete records[k];save(records);
+    modal.classList.add("hidden");
+    renderAlbum();
+    if(k===todayKey)location.reload();
+    modalKey=null;
+  }
+});
+
+/* ================= friends ================= */
+const BOTS=[
+  {id:"bot_mizu",name:"mizu",color:"#54a0ff",style:0},
+  {id:"bot_hana",name:"hana",color:"#ff7eb9",style:1},
+  {id:"bot_sora",name:"sora",color:"#00cec9",style:2},
+];
+function avatarEl(name,color,cls){
+  const a=document.createElement("div");
+  a.className="avatar"+(cls?" "+cls:"");
+  a.style.background=color;
+  a.textContent=(name||"?").charAt(0).toUpperCase();
+  return a;
+}
+/* generative art for bot posts */
+function botArt(hex,style,seed){
+  const S=240,cv=document.createElement("canvas");cv.width=cv.height=S;
+  const x=cv.getContext("2d");
+  let s=seed>>>0;const rnd=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
+  x.fillStyle="#101216";x.fillRect(0,0,S,S);
+  x.fillStyle=hex;
+  if(style===0){ // circles
+    for(let i=0;i<8;i++){x.globalAlpha=.3+rnd()*.65;x.beginPath();x.arc(rnd()*S,rnd()*S,10+rnd()*48,0,7);x.fill();}
+  }else if(style===1){ // stripes
+    x.save();x.translate(S/2,S/2);x.rotate(rnd()*Math.PI);
+    for(let i=-5;i<6;i++){x.globalAlpha=.35+rnd()*.6;x.fillRect(i*34+rnd()*12-8,-S,14+rnd()*16,S*2);}
+    x.restore();
+  }else{ // blobs
+    for(let i=0;i<6;i++){x.globalAlpha=.3+rnd()*.6;x.beginPath();
+      x.ellipse(rnd()*S,rnd()*S,20+rnd()*45,20+rnd()*45,rnd()*Math.PI,0,7);x.fill();}
+  }
+  x.globalAlpha=1;
+  return cv.toDataURL("image/jpeg",0.8);
+}
+function followBot(bot){
+  const posts={};
+  for(let i=0;i<7;i++){
+    const d=new Date(now);d.setDate(d.getDate()-i);
+    const col=colorForDate(d);
+    const score=45+Math.floor(Math.random()*55);
+    posts[ymd(d)]={date:ymd(d),color:col.hex,name:col.name,en:col.en,
+      photo:botArt(col.hex,bot.style,dayNumber(d)*2654435761+bot.style*97),
+      score,rank:rankOf(score).t};
+  }
+  friends[bot.id]={id:bot.id,name:bot.name,color:bot.color,posts};
+  saveFriends();renderFriends();
+}
+function renderFriends(){
+  /* profile */
+  const av=$("meAvatar");
+  av.replaceWith(Object.assign(avatarEl(profile.name,profile.color),{id:"meAvatar"}));
+  $("meName").value=profile.name||"";
+
+  /* friend list */
+  const list=$("friendList");list.innerHTML="";
+  const ids=Object.keys(friends);
+  if(!ids.length){list.innerHTML='<div class="empty-friends">NO FRIENDS YET</div>';}
+  ids.forEach(id=>{
+    const f=friends[id];
+    const row=document.createElement("div");row.className="frow";
+    row.appendChild(avatarEl(f.name,f.color||"#7f8fa6"));
+    const info=document.createElement("div");
+    const n=Object.keys(f.posts||{}).length;
+    info.innerHTML=`<div class="fn">${f.name}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"}</div>`;
+    row.appendChild(info);
+    const btn=document.createElement("button");
+    btn.className="act";btn.textContent="REMOVE";
+    btn.addEventListener("click",()=>{
+      if(confirm(`Remove @${f.name}?`)){delete friends[id];saveFriends();renderFriends();}
+    });
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+
+  /* suggested */
+  const sug=$("suggestList");sug.innerHTML="";
+  const rest=BOTS.filter(b=>!friends[b.id]);
+  if(!rest.length){sug.innerHTML='<div class="empty-friends">ALL FOLLOWED</div>';}
+  rest.forEach(b=>{
+    const row=document.createElement("div");row.className="frow";
+    row.appendChild(avatarEl(b.name,b.color));
+    const info=document.createElement("div");
+    info.innerHTML=`<div class="fn">${b.name}</div><div class="fs">DAILY COLOR ARTIST</div>`;
+    row.appendChild(info);
+    const btn=document.createElement("button");
+    btn.className="act follow";btn.textContent="FOLLOW";
+    btn.addEventListener("click",()=>followBot(b));
+    row.appendChild(btn);
+    sug.appendChild(row);
+  });
+}
+$("meName").addEventListener("change",()=>{
+  profile.name=$("meName").value.trim()||"YOU";
+  saveProfile();renderFriends();
+});
+
+/* export / import */
+$("exportBtn").addEventListener("click",()=>{
+  const data={app:"iro-nikki",v:1,id:profile.id,name:profile.name||"YOU",color:profile.color,posts:records};
+  const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="iro-"+(profile.name||"me")+".json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$("importBtn").addEventListener("click",()=>$("importInput").click());
+
+/* ================= PWA ================= */
+if("serviceWorker" in navigator){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+}
+$("importInput").addEventListener("change",e=>{
+  const f=e.target.files[0];e.target.value="";if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{
+    try{
+      const d=JSON.parse(ev.target.result);
+      if(d.app!=="iro-nikki"||!d.id||!d.posts)throw 0;
+      if(d.id===profile.id){alert("That's your own diary.");return;}
+      friends[d.id]={id:d.id,name:d.name||"friend",color:d.color||"#7f8fa6",posts:d.posts};
+      saveFriends();renderFriends();
+      alert("@"+(d.name||"friend")+" added!");
+    }catch(err){alert("Invalid file.");}
+  };
+  rd.readAsText(f);
+});
+</script>
+</body>
+</html>
