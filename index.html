@@ -239,6 +239,31 @@
   .empty-friends{text-align:center;color:var(--faint);font-size:10px;font-weight:700;letter-spacing:.2em;padding:18px 0;}
   .post .head .who{font-size:9px;font-weight:800;letter-spacing:.14em;color:var(--muted);}
 
+  /* ---------- cloud ---------- */
+  .code-row{display:flex;gap:8px;align-items:stretch;}
+  .mycode{
+    flex:1;background:var(--bg2);border:1px dashed var(--accent);border-radius:12px;
+    padding:11px 8px;text-align:center;font-weight:900;font-size:18px;letter-spacing:.32em;
+  }
+  #followInput{
+    flex:1;min-width:0;background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+    color:var(--ink);font-family:inherit;font-size:15px;font-weight:800;
+    padding:10px 12px;letter-spacing:.28em;text-transform:uppercase;outline:none;
+  }
+  #followInput:focus{border-color:var(--accent);}
+  .wbtn.slim{flex:0 0 auto;padding:0 16px;}
+  .wbtn.grad{background:var(--grad);border:none;color:#0c0d10;}
+
+  /* ---------- likes ---------- */
+  .post .foot{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .lkbtn{
+    background:none;border:none;color:var(--muted);font-family:inherit;
+    font-size:14px;font-weight:800;cursor:pointer;display:flex;gap:6px;
+    align-items:center;padding:2px 4px;letter-spacing:.04em;
+  }
+  .lkbtn.liked{color:#ff6b81;}
+  .lkbtn:active{transform:scale(1.2);}
+
   /* feed */
   .feed{display:flex;flex-direction:column;gap:14px;}
   .post{
@@ -358,6 +383,25 @@
 
   <!-- ============ FRIENDS VIEW ============ -->
   <section class="view" id="viewFriends">
+    <div class="panel">
+      <h2>CLOUD</h2>
+      <div id="cloudOff">
+        <div class="empty-friends" id="cloudStatus">NOT CONNECTED — SETUP REQUIRED</div>
+      </div>
+      <div id="cloudOn" class="hidden">
+        <div class="fnote" style="text-align:left;margin:0 0 7px;">MY CODE — SHARE IT WITH FRIENDS</div>
+        <div class="code-row">
+          <div class="mycode" id="myCode">------</div>
+          <button class="wbtn slim" id="copyCode">COPY</button>
+        </div>
+        <div class="code-row" style="margin-top:10px;">
+          <input id="followInput" maxlength="6" placeholder="FRIEND CODE" autocomplete="off" />
+          <button class="wbtn slim grad" id="followBtn">FOLLOW</button>
+        </div>
+        <div id="followingList" style="margin-top:12px;"></div>
+      </div>
+    </div>
+
     <div class="panel">
       <h2>MY PROFILE</h2>
       <div class="me-row">
@@ -524,6 +568,12 @@ if(!profile){
 }
 const saveFriends=()=>localStorage.setItem(FRIENDS_KEY,JSON.stringify(friends));
 const saveProfile=()=>localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));
+
+/* cloud (Firebase) — 設定はページ末尾の IRO_FIREBASE_CONFIG に入れる */
+let cloudPeers={};      // uid -> {name,color,posts:{date:post}}
+let cloudSelfPosts={};  // 自分の投稿のクラウド側ミラー（いいね数の取得用）
+let myUid=null;
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let stream=null, facing="environment", mode="idle";
 
 const $=id=>document.getElementById(id);
@@ -609,6 +659,7 @@ function processShot(dataUrl){
       const {score,rank}=judge(img,todayColor.hex);
       records[todayKey]={date:todayKey,color:todayColor.hex,name:todayColor.name,en:todayColor.en,photo:dataUrl,score,rank:rank.t};
       save(records);
+      if(window.cloud)window.cloud.pushPost(records[todayKey]);
       $("analyzing").classList.add("hidden");
       showResult(score,rank);
       lockToday();
@@ -666,13 +717,18 @@ function renderAlbum(){
   renderMonthly(keys);
   renderPhotos(keys);
 
-  /* feed: own + friends, newest first */
+  /* feed: own + local friends + cloud follows, newest first */
   const feed=$("feed");feed.innerHTML="";
   const posts=[];
-  keys.forEach(k=>posts.push({owner:"me",who:profile.name||"YOU",key:k,r:records[k]}));
+  keys.forEach(k=>posts.push({owner:"me",who:profile.name||"YOU",key:k,r:records[k],cloud:cloudSelfPosts[k]||null,ownerUid:myUid}));
   Object.values(friends).forEach(f=>{
     Object.keys(f.posts||{}).forEach(k=>{
-      if(k<=todayKey)posts.push({owner:f.id,who:f.name,key:k,r:f.posts[k]});
+      if(k<=todayKey)posts.push({owner:f.id,who:f.name,key:k,r:f.posts[k],cloud:null,ownerUid:null});
+    });
+  });
+  Object.entries(cloudPeers).forEach(([uid,f])=>{
+    Object.keys(f.posts||{}).forEach(k=>{
+      if(k<=todayKey)posts.push({owner:"peer:"+uid,who:f.name,key:k,r:f.posts[k],cloud:f.posts[k],ownerUid:uid});
     });
   });
   posts.sort((a,b)=>a.key===b.key?(a.owner==="me"?-1:1):(a.key<b.key?1:-1));
@@ -683,20 +739,30 @@ function renderAlbum(){
   posts.forEach(p=>{
     const r=p.r,d=parseYmd(p.key);
     const rk=typeof r.score==="number"?rankOf(r.score):null;
+    const likedBy=(p.cloud&&p.cloud.likedBy)||null;
+    const liked=!!(likedBy&&myUid&&likedBy.includes(myUid));
     const post=document.createElement("div");
     post.className="post";
     post.innerHTML=`
       <div class="head">
         <div class="dotc" style="background:${r.color}"></div>
         <div>
-          <div class="n">${r.name} <span class="who">@${p.who}</span></div>
+          <div class="n">${esc(r.name)} <span class="who">@${esc(p.who)}</span></div>
           <div class="d">${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}</div>
         </div>
         ${rk?`<div class="badge" style="color:${rk.c}">${rk.t} · ${r.score}%</div>`:""}
       </div>
       <img src="${r.photo}" alt="" loading="lazy" />
-      <div class="foot">${r.en||""} ${r.color.toUpperCase()}</div>`;
+      <div class="foot">
+        <span>${esc(r.en||"")} ${esc((r.color||"").toUpperCase())}</span>
+        ${likedBy?`<button class="lkbtn ${liked?"liked":""}">${liked?"♥":"♡"}${likedBy.length?" "+likedBy.length:""}</button>`:""}
+      </div>`;
     post.addEventListener("click",()=>openModal(p.key,p.owner));
+    const lk=post.querySelector(".lkbtn");
+    if(lk)lk.addEventListener("click",e=>{
+      e.stopPropagation();
+      if(window.cloud&&p.ownerUid)window.cloud.toggleLike(p.ownerUid,p.key,liked);
+    });
     feed.appendChild(post);
   });
 }
@@ -746,13 +812,19 @@ $("segPhotos").addEventListener("click",()=>{
 /* ================= modal ================= */
 const modal=$("modal");let modalKey=null;
 function openModal(key,owner="me"){
-  const r=owner==="me"?records[key]:(friends[owner]&&friends[owner].posts&&friends[owner].posts[key]);
+  let r,who;
+  if(owner==="me"){r=records[key];who=profile.name||"YOU";}
+  else if(owner.startsWith("peer:")){
+    const uid=owner.slice(5);
+    r=cloudPeers[uid]&&cloudPeers[uid].posts[key];
+    who=cloudPeers[uid]&&cloudPeers[uid].name;
+  }
+  else{r=friends[owner]&&friends[owner].posts&&friends[owner].posts[key];who=friends[owner]&&friends[owner].name;}
   if(!r)return;
   modalKey={key,owner};
   $("mImg").src=r.photo;
   $("mSw").style.background=r.color;
   const d=parseYmd(key);
-  const who=owner==="me"?(profile.name||"YOU"):friends[owner].name;
   $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
   $("mColor").textContent=r.name+" · "+(r.en||"")+" "+r.color.toUpperCase();
   $("mDel").style.display=owner==="me"?"":"none";
@@ -771,6 +843,7 @@ $("mDel").addEventListener("click",()=>{
   if(confirm("Delete this entry?")){
     const k=modalKey.key;
     delete records[k];save(records);
+    if(window.cloud)window.cloud.deletePost(k);
     modal.classList.add("hidden");
     renderAlbum();
     if(k===todayKey)location.reload();
@@ -840,7 +913,7 @@ function renderFriends(){
     row.appendChild(avatarEl(f.name,f.color||"#7f8fa6"));
     const info=document.createElement("div");
     const n=Object.keys(f.posts||{}).length;
-    info.innerHTML=`<div class="fn">${f.name}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"}</div>`;
+    info.innerHTML=`<div class="fn">${esc(f.name)}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"}</div>`;
     row.appendChild(info);
     const btn=document.createElement("button");
     btn.className="act";btn.textContent="REMOVE";
@@ -871,6 +944,7 @@ function renderFriends(){
 $("meName").addEventListener("change",()=>{
   profile.name=$("meName").value.trim()||"YOU";
   saveProfile();renderFriends();
+  if(window.cloud)window.cloud.setName(profile.name);
 });
 
 /* export / import */
@@ -904,6 +978,154 @@ $("importInput").addEventListener("change",e=>{
   };
   rd.readAsText(f);
 });
+</script>
+<script>
+/* ▼ Firebase設定：セットアップ後にここへ貼り付ける */
+window.IRO_FIREBASE_CONFIG = null;
+</script>
+<script type="module">
+if(window.IRO_FIREBASE_CONFIG){(async()=>{
+try{
+  const {initializeApp}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js");
+  const {getAuth,signInAnonymously}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js");
+  const FS=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js");
+  const app=initializeApp(window.IRO_FIREBASE_CONFIG);
+  const db=FS.getFirestore(app);
+  const auth=getAuth(app);
+  const cred=await signInAnonymously(auth);
+  const uid=cred.user.uid;
+  myUid=uid;
+
+  /* friend code allocation (unique via transaction) */
+  async function allocCode(){
+    const chars="ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    for(let t=0;t<20;t++){
+      let code="";for(let i=0;i<6;i++)code+=chars[Math.floor(Math.random()*chars.length)];
+      const ref=FS.doc(db,"codes",code);
+      try{
+        await FS.runTransaction(db,async tx=>{
+          const snap=await tx.get(ref);
+          if(snap.exists())throw new Error("taken");
+          tx.set(ref,{uid});
+        });
+        return code;
+      }catch(e){}
+    }
+    throw new Error("code allocation failed");
+  }
+
+  /* my profile doc */
+  const meRef=FS.doc(db,"users",uid);
+  const meDoc=await FS.getDoc(meRef);
+  let me=meDoc.exists()?meDoc.data():null;
+  if(!me){
+    const code=await allocCode();
+    me={name:profile.name||"YOU",color:profile.color,code};
+    await FS.setDoc(meRef,me);
+  }
+  $("myCode").textContent=me.code;
+  $("cloudOff").classList.add("hidden");
+  $("cloudOn").classList.remove("hidden");
+
+  /* upload local posts missing in cloud */
+  const mine=await FS.getDocs(FS.collection(db,"users",uid,"posts"));
+  const have=new Set(mine.docs.map(d=>d.id));
+  for(const k of Object.keys(records)){
+    if(!have.has(k))await FS.setDoc(FS.doc(db,"users",uid,"posts",k),{...records[k],likedBy:[]});
+  }
+
+  function refresh(){if($("viewAlbum").classList.contains("on"))renderAlbum();}
+
+  /* live: own posts (like counts) */
+  FS.onSnapshot(FS.collection(db,"users",uid,"posts"),s=>{
+    cloudSelfPosts={};
+    s.forEach(d=>cloudSelfPosts[d.id]=d.data());
+    refresh();
+  });
+
+  /* following list UI */
+  function renderFollowing(){
+    const box=$("followingList");box.innerHTML="";
+    const uids=Object.keys(cloudPeers);
+    if(!uids.length){box.innerHTML='<div class="empty-friends">NOT FOLLOWING ANYONE YET</div>';return;}
+    uids.forEach(puid=>{
+      const f=cloudPeers[puid];
+      const row=document.createElement("div");row.className="frow";
+      row.appendChild(avatarEl(f.name,f.color||"#7f8fa6"));
+      const info=document.createElement("div");
+      const n=Object.keys(f.posts||{}).length;
+      info.innerHTML=`<div class="fn">${esc(f.name||"friend")}</div><div class="fs">${n} ${n===1?"SHOT":"SHOTS"} · CLOUD</div>`;
+      row.appendChild(info);
+      const btn=document.createElement("button");
+      btn.className="act";btn.textContent="UNFOLLOW";
+      btn.addEventListener("click",()=>{
+        if(confirm("Unfollow @"+(f.name||"friend")+"?"))FS.deleteDoc(FS.doc(db,"users",uid,"follows",puid));
+      });
+      row.appendChild(btn);
+      box.appendChild(row);
+    });
+  }
+
+  /* live: follows -> per-peer listeners */
+  const peerUnsubs={};
+  FS.onSnapshot(FS.collection(db,"users",uid,"follows"),snap=>{
+    const uids=snap.docs.map(d=>d.id);
+    uids.forEach(puid=>{
+      if(peerUnsubs[puid])return;
+      const unsubUser=FS.onSnapshot(FS.doc(db,"users",puid),us=>{
+        const u=us.data()||{};
+        cloudPeers[puid]=Object.assign(cloudPeers[puid]||{posts:{}},{name:u.name||"friend",color:u.color||"#7f8fa6"});
+        renderFollowing();refresh();
+      });
+      const unsubPosts=FS.onSnapshot(
+        FS.query(FS.collection(db,"users",puid,"posts"),FS.orderBy("date","desc"),FS.limit(60)),
+        ps=>{
+          const posts={};ps.forEach(d=>posts[d.id]=d.data());
+          cloudPeers[puid]=Object.assign(cloudPeers[puid]||{},{posts});
+          renderFollowing();refresh();
+        });
+      peerUnsubs[puid]=()=>{unsubUser();unsubPosts();};
+    });
+    Object.keys(peerUnsubs).forEach(puid=>{
+      if(!uids.includes(puid)){peerUnsubs[puid]();delete peerUnsubs[puid];delete cloudPeers[puid];}
+    });
+    renderFollowing();refresh();
+  });
+
+  /* copy & follow */
+  $("copyCode").addEventListener("click",()=>{
+    navigator.clipboard.writeText(me.code).then(()=>{
+      $("copyCode").textContent="COPIED!";
+      setTimeout(()=>{$("copyCode").textContent="COPY";},1200);
+    }).catch(()=>{});
+  });
+  $("followBtn").addEventListener("click",async()=>{
+    const code=$("followInput").value.trim().toUpperCase();
+    if(code.length!==6){alert("Enter the 6-letter friend code.");return;}
+    if(code===me.code){alert("That's your own code.");return;}
+    try{
+      const cs=await FS.getDoc(FS.doc(db,"codes",code));
+      if(!cs.exists()){alert("Code not found.");return;}
+      await FS.setDoc(FS.doc(db,"users",uid,"follows",cs.data().uid),{addedAt:Date.now()});
+      $("followInput").value="";
+    }catch(e){alert("Follow failed. Try again.");}
+  });
+
+  /* API used by the main script */
+  window.cloud={
+    pushPost(rec){FS.setDoc(FS.doc(db,"users",uid,"posts",rec.date),{...rec,likedBy:[]}).catch(()=>{});},
+    deletePost(date){FS.deleteDoc(FS.doc(db,"users",uid,"posts",date)).catch(()=>{});},
+    toggleLike(owner,date,liked){
+      FS.updateDoc(FS.doc(db,"users",owner,"posts",date),
+        {likedBy:liked?FS.arrayRemove(uid):FS.arrayUnion(uid)}).catch(()=>{});
+    },
+    setName(n){me.name=n;FS.updateDoc(meRef,{name:n}).catch(()=>{});},
+  };
+}catch(e){
+  $("cloudStatus").textContent="CLOUD ERROR";
+  console.error("cloud init failed",e);
+}
+})();}
 </script>
 </body>
 </html>
