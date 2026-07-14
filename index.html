@@ -200,6 +200,21 @@
     position:absolute;right:5px;bottom:5px;width:10px;height:10px;border-radius:50%;
     box-shadow:0 0 0 1.5px rgba(0,0,0,.35);
   }
+
+  /* calendar-style monthly grid */
+  .calhead{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px;}
+  .calhead span{text-align:center;font-size:8px;font-weight:800;letter-spacing:.1em;color:var(--faint);}
+  .pgrid.cal{grid-template-columns:repeat(7,1fr);border-radius:0;overflow:visible;}
+  .pgrid.cal .pcell{border-radius:7px;}
+  .pcell.pad{background:none;cursor:default;}
+  .pcell.blank{
+    background:var(--bg2);cursor:default;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .pcell.blank .dnum{font-size:9px;font-weight:700;color:var(--faint);}
+  .pcell.blank.future{background:transparent;box-shadow:inset 0 0 0 1px var(--bg2);}
+  .pcell.blank.future .dnum{opacity:.4;}
+  .pgrid.cal .pcell .dtag{font-size:8px;}
   .empty-album{text-align:center;color:var(--faint);font-size:11px;font-weight:700;letter-spacing:.2em;padding:30px 0;}
 
   /* ---------- friends ---------- */
@@ -418,6 +433,10 @@
       <div id="albumPhotos" class="hidden"></div>
     </div>
 
+  </section>
+
+  <!-- ============ TIMELINE VIEW ============ -->
+  <section class="view" id="viewTimeline">
     <div class="panel" style="padding:16px 16px 18px;">
       <h2>TIMELINE</h2>
       <div class="feed" id="feed"></div>
@@ -450,24 +469,13 @@
         <div class="avatar tappable" id="meAvatar"></div>
         <input id="meName" maxlength="12" placeholder="YOUR NAME" autocomplete="off" />
       </div>
-      <div class="fnote" style="text-align:left;margin:6px 0 12px;">TAP THE AVATAR TO SET YOUR PHOTO</div>
+      <div class="fnote" style="text-align:left;margin:6px 0 0;">TAP THE AVATAR TO SET YOUR PHOTO</div>
       <input type="file" id="avatarInput" accept="image/*" />
-      <div class="frow-btns">
-        <button class="wbtn" id="exportBtn">EXPORT MY DIARY</button>
-        <button class="wbtn" id="importBtn">ADD FRIEND FILE</button>
-      </div>
-      <div class="fnote">EXPORT your file &amp; send it — friends IMPORT it to follow you</div>
-      <input type="file" id="importInput" accept=".json,application/json" />
     </div>
 
     <div class="panel">
       <h2>FRIENDS</h2>
       <div id="friendList"></div>
-    </div>
-
-    <div class="panel">
-      <h2>SUGGESTED</h2>
-      <div id="suggestList"></div>
     </div>
   </section>
 </div>
@@ -476,8 +484,9 @@
 <nav class="nav">
   <div class="nav-inner">
     <button id="tabCam" class="on"><span class="ico">📷</span>CAMERA</button>
-    <button id="tabFriends"><span class="ico">👥</span>FRIENDS</button>
+    <button id="tabTimeline"><span class="ico">🏠</span>TIMELINE</button>
     <button id="tabAlbum"><span class="ico">🎞</span>ALBUM</button>
+    <button id="tabFriends"><span class="ico">👥</span>FRIENDS</button>
   </div>
 </nav>
 
@@ -610,6 +619,10 @@ const now=new Date(), todayKey=ymd(now), todayColor=colorForDate(now);
 const FRIENDS_KEY="iro-nikki-friends", PROFILE_KEY="iro-nikki-profile";
 function loadJson(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch(e){return fb}}
 let friends=loadJson(FRIENDS_KEY,{});
+/* 旧SUGGESTEDボットの掃除 */
+{let purged=false;
+ Object.keys(friends).forEach(id=>{if(id.startsWith("bot_")){delete friends[id];purged=true;}});
+ if(purged)localStorage.setItem(FRIENDS_KEY,JSON.stringify(friends));}
 let profile=loadJson(PROFILE_KEY,null);
 if(!profile){
   profile={id:(crypto.randomUUID?crypto.randomUUID():"me-"+Date.now()),name:"YOU",color:"#7c5cff"};
@@ -630,22 +643,24 @@ const $=id=>document.getElementById(id);
 /* ================= header / quest ================= */
 $("topDay").textContent=(now.getMonth()+1)+"/"+now.getDate()+" "+["SUN","MON","TUE","WED","THU","FRI","SAT"][now.getDay()];
 $("qChip").style.background=todayColor.hex;
-$("qName").textContent=todayColor.name;
-$("qHex").textContent=todayColor.en+" · "+todayColor.hex.toUpperCase();
+$("qName").textContent=todayColor.en;
+$("qHex").textContent=todayColor.hex.toUpperCase();
 
 /* ================= tabs ================= */
-const VIEWS={cam:["viewCam","tabCam"],friends:["viewFriends","tabFriends"],album:["viewAlbum","tabAlbum"]};
+const VIEWS={cam:["viewCam","tabCam"],timeline:["viewTimeline","tabTimeline"],album:["viewAlbum","tabAlbum"],friends:["viewFriends","tabFriends"]};
 function switchTab(name){
   for(const k in VIEWS){
     $(VIEWS[k][0]).classList.toggle("on",k===name);
     $(VIEWS[k][1]).classList.toggle("on",k===name);
   }
   if(name==="album")renderAlbum();
+  if(name==="timeline")renderTimeline();
   if(name==="friends")renderFriends();
 }
 $("tabCam").addEventListener("click",()=>switchTab("cam"));
-$("tabFriends").addEventListener("click",()=>switchTab("friends"));
+$("tabTimeline").addEventListener("click",()=>switchTab("timeline"));
 $("tabAlbum").addEventListener("click",()=>switchTab("album"));
+$("tabFriends").addEventListener("click",()=>switchTab("friends"));
 
 /* ================= camera ================= */
 const video=$("video"),preview=$("preview"),idle=$("idle");
@@ -766,7 +781,11 @@ function renderAlbum(){
   renderMonthly(keys);
   renderPhotos(keys);
   renderRanking();
+}
 
+/* ================= timeline ================= */
+function renderTimeline(){
+  const keys=Object.keys(records).sort();
   /* feed: own + local friends + cloud follows, newest first */
   const feed=$("feed");feed.innerHTML="";
   const posts=[];
@@ -804,14 +823,14 @@ function renderAlbum(){
       <div class="head">
         ${headIcon}
         <div>
-          <div class="n">${esc(r.name)} <span class="who">@${esc(p.who)}</span></div>
+          <div class="n">${esc(r.en||r.name)} <span class="who">@${esc(p.who)}</span></div>
           <div class="d">${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())}</div>
         </div>
         ${rk?`<div class="badge" style="color:${rk.c}">${rk.t} · ${r.score}%</div>`:""}
       </div>
       <img src="${r.photo}" alt="" loading="lazy" />
       <div class="foot">
-        <span>${esc(r.en||"")} ${esc((r.color||"").toUpperCase())}</span>
+        <span>${esc((r.color||"").toUpperCase())}</span>
         <span class="footR">
           ${p.cloud&&p.cloud.commentCount>0?`<span class="cmtn">💬 ${p.cloud.commentCount}</span>`:""}
           ${likedBy?`<button class="lkbtn ${liked?"liked":""}">${liked?"♥":"♡"}${likedBy.length?" "+likedBy.length:""}</button>`:""}
@@ -881,12 +900,27 @@ function renderMonthly(keys){
   const byMonth={};
   keys.forEach(k=>{const m=k.slice(0,7);(byMonth[m]=byMonth[m]||[]).push(k);});
   Object.keys(byMonth).sort().reverse().forEach(m=>{
-    const[y,mo]=m.split("-");
+    const[y,mo]=m.split("-").map(Number);
     const block=document.createElement("div");
     block.className="month-block";
-    block.innerHTML=`<div class="month-head"><span class="m">${y}.${mo}</span><span class="c">${byMonth[m].length} ${byMonth[m].length===1?"SHOT":"SHOTS"}</span></div>`;
-    const grid=document.createElement("div");grid.className="pgrid";
-    [...byMonth[m]].reverse().forEach(k=>grid.appendChild(makePcell(k)));
+    const cnt=byMonth[m].length;
+    block.innerHTML=`
+      <div class="month-head"><span class="m">${y}.${pad(mo)}</span><span class="c">${cnt} ${cnt===1?"SHOT":"SHOTS"}</span></div>
+      <div class="calhead"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>`;
+    const grid=document.createElement("div");grid.className="pgrid cal";
+    const firstDow=new Date(y,mo-1,1).getDay();
+    const days=new Date(y,mo,0).getDate();
+    for(let i=0;i<firstDow;i++)grid.appendChild(Object.assign(document.createElement("div"),{className:"pcell pad"}));
+    for(let d=1;d<=days;d++){
+      const key=y+"-"+pad(mo)+"-"+pad(d);
+      if(records[key]){grid.appendChild(makePcell(key));}
+      else{
+        const c=document.createElement("div");
+        c.className="pcell blank"+(key>todayKey?" future":"");
+        c.innerHTML=`<span class="dnum">${d}</span>`;
+        grid.appendChild(c);
+      }
+    }
     block.appendChild(grid);
     box.appendChild(block);
   });
@@ -926,7 +960,7 @@ function openModal(key,owner="me"){
   $("mSw").style.background=r.color;
   const d=parseYmd(key);
   $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
-  $("mColor").textContent=r.name+" · "+(r.en||"")+" "+r.color.toUpperCase();
+  $("mColor").textContent=(r.en||r.name)+" · "+r.color.toUpperCase();
   $("mDel").style.display=owner==="me"?"":"none";
   /* comments (cloud posts only) */
   stopComments();
@@ -976,11 +1010,6 @@ $("mDel").addEventListener("click",()=>{
 });
 
 /* ================= friends ================= */
-const BOTS=[
-  {id:"bot_mizu",name:"mizu",color:"#54a0ff",style:0},
-  {id:"bot_hana",name:"hana",color:"#ff7eb9",style:1},
-  {id:"bot_sora",name:"sora",color:"#00cec9",style:2},
-];
 function avatarEl(name,color,avatar){
   const a=document.createElement("div");
   a.className="avatar";
@@ -993,39 +1022,6 @@ function avatarEl(name,color,avatar){
     a.textContent=(name||"?").charAt(0).toUpperCase();
   }
   return a;
-}
-/* generative art for bot posts */
-function botArt(hex,style,seed){
-  const S=240,cv=document.createElement("canvas");cv.width=cv.height=S;
-  const x=cv.getContext("2d");
-  let s=seed>>>0;const rnd=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
-  x.fillStyle="#101216";x.fillRect(0,0,S,S);
-  x.fillStyle=hex;
-  if(style===0){ // circles
-    for(let i=0;i<8;i++){x.globalAlpha=.3+rnd()*.65;x.beginPath();x.arc(rnd()*S,rnd()*S,10+rnd()*48,0,7);x.fill();}
-  }else if(style===1){ // stripes
-    x.save();x.translate(S/2,S/2);x.rotate(rnd()*Math.PI);
-    for(let i=-5;i<6;i++){x.globalAlpha=.35+rnd()*.6;x.fillRect(i*34+rnd()*12-8,-S,14+rnd()*16,S*2);}
-    x.restore();
-  }else{ // blobs
-    for(let i=0;i<6;i++){x.globalAlpha=.3+rnd()*.6;x.beginPath();
-      x.ellipse(rnd()*S,rnd()*S,20+rnd()*45,20+rnd()*45,rnd()*Math.PI,0,7);x.fill();}
-  }
-  x.globalAlpha=1;
-  return cv.toDataURL("image/jpeg",0.8);
-}
-function followBot(bot){
-  const posts={};
-  for(let i=0;i<7;i++){
-    const d=new Date(now);d.setDate(d.getDate()-i);
-    const col=colorForDate(d);
-    const score=45+Math.floor(Math.random()*55);
-    posts[ymd(d)]={date:ymd(d),color:col.hex,name:col.name,en:col.en,
-      photo:botArt(col.hex,bot.style,dayNumber(d)*2654435761+bot.style*97),
-      score,rank:rankOf(score).t};
-  }
-  friends[bot.id]={id:bot.id,name:bot.name,color:bot.color,posts};
-  saveFriends();renderFriends();
 }
 function renderFriends(){
   /* profile */
@@ -1073,22 +1069,6 @@ function renderFriends(){
     list.appendChild(row);
   });
 
-  /* suggested */
-  const sug=$("suggestList");sug.innerHTML="";
-  const rest=BOTS.filter(b=>!friends[b.id]);
-  if(!rest.length){sug.innerHTML='<div class="empty-friends">ALL FOLLOWED</div>';}
-  rest.forEach(b=>{
-    const row=document.createElement("div");row.className="frow";
-    row.appendChild(avatarEl(b.name,b.color));
-    const info=document.createElement("div");
-    info.innerHTML=`<div class="fn">${b.name}</div><div class="fs">DAILY COLOR ARTIST</div>`;
-    row.appendChild(info);
-    const btn=document.createElement("button");
-    btn.className="act follow";btn.textContent="FOLLOW";
-    btn.addEventListener("click",()=>followBot(b));
-    row.appendChild(btn);
-    sug.appendChild(row);
-  });
 }
 $("meName").addEventListener("change",()=>{
   profile.name=$("meName").value.trim()||"YOU";
@@ -1113,37 +1093,10 @@ $("avatarInput").addEventListener("change",e=>{
   rd.readAsDataURL(f);
 });
 
-/* export / import */
-$("exportBtn").addEventListener("click",()=>{
-  const data={app:"iro-nikki",v:1,id:profile.id,name:profile.name||"YOU",color:profile.color,avatar:profile.avatar||null,posts:records};
-  const blob=new Blob([JSON.stringify(data)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download="iro-"+(profile.name||"me")+".json";
-  a.click();
-  URL.revokeObjectURL(a.href);
-});
-$("importBtn").addEventListener("click",()=>$("importInput").click());
-
 /* ================= PWA ================= */
 if("serviceWorker" in navigator){
   window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
 }
-$("importInput").addEventListener("change",e=>{
-  const f=e.target.files[0];e.target.value="";if(!f)return;
-  const rd=new FileReader();
-  rd.onload=ev=>{
-    try{
-      const d=JSON.parse(ev.target.result);
-      if(d.app!=="iro-nikki"||!d.id||!d.posts)throw 0;
-      if(d.id===profile.id){alert("That's your own diary.");return;}
-      friends[d.id]={id:d.id,name:d.name||"friend",color:d.color||"#7f8fa6",avatar:d.avatar||null,posts:d.posts};
-      saveFriends();renderFriends();
-      alert("@"+(d.name||"friend")+" added!");
-    }catch(err){alert("Invalid file.");}
-  };
-  rd.readAsText(f);
-});
 </script>
 <script>
 /* ▼ Firebase設定 */
@@ -1211,7 +1164,10 @@ try{
     if(!have.has(k))await FS.setDoc(FS.doc(db,"users",uid,"posts",k),{...records[k],likedBy:[]});
   }
 
-  function refresh(){if($("viewAlbum").classList.contains("on"))renderAlbum();}
+  function refresh(){
+    if($("viewAlbum").classList.contains("on"))renderAlbum();
+    if($("viewTimeline").classList.contains("on"))renderTimeline();
+  }
 
   /* live: own posts (like counts) */
   FS.onSnapshot(FS.collection(db,"users",uid,"posts"),s=>{
