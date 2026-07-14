@@ -438,7 +438,7 @@
   <!-- ============ TIMELINE VIEW ============ -->
   <section class="view" id="viewTimeline">
     <div class="panel" style="padding:16px 16px 18px;">
-      <h2>TIMELINE</h2>
+      <h2>TODAY'S TIMELINE</h2>
       <div class="feed" id="feed"></div>
     </div>
   </section>
@@ -610,9 +610,53 @@ function rankOf(s){
 }
 
 /* ================= state ================= */
-function load(){try{return JSON.parse(localStorage.getItem(STORE_KEY))||{}}catch(e){return{}}}
-const save=d=>localStorage.setItem(STORE_KEY,JSON.stringify(d));
-let records=load();
+/* ---- IndexedDB storage (photos are too big for localStorage's ~5MB cap) ---- */
+const IDB_NAME="iro-nikki",IDB_STORE="kv";
+let _idb=null;
+function idbOpen(){
+  if(_idb)return Promise.resolve(_idb);
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open(IDB_NAME,1);
+    r.onupgradeneeded=()=>r.result.createObjectStore(IDB_STORE);
+    r.onsuccess=()=>{_idb=r.result;res(_idb);};
+    r.onerror=()=>rej(r.error);
+  });
+}
+async function idbGet(k){
+  const db=await idbOpen();
+  return new Promise((res,rej)=>{
+    const t=db.transaction(IDB_STORE).objectStore(IDB_STORE).get(k);
+    t.onsuccess=()=>res(t.result);
+    t.onerror=()=>rej(t.error);
+  });
+}
+async function idbSet(k,v){
+  const db=await idbOpen();
+  return new Promise((res,rej)=>{
+    const t=db.transaction(IDB_STORE,"readwrite").objectStore(IDB_STORE).put(v,k);
+    t.onsuccess=()=>res();
+    t.onerror=()=>rej(t.error);
+  });
+}
+async function loadRecords(){
+  try{
+    let r=await idbGet("records");
+    if(!r){
+      // 旧localStorage形式からの移行
+      try{r=JSON.parse(localStorage.getItem(STORE_KEY))||{};}catch(e){r={};}
+      if(Object.keys(r).length)await idbSet("records",r);
+      localStorage.removeItem(STORE_KEY);
+    }
+    return r;
+  }catch(e){
+    // IndexedDB不可の環境ではlocalStorageにフォールバック
+    try{return JSON.parse(localStorage.getItem(STORE_KEY))||{};}catch(e2){return{};}
+  }
+}
+function save(d){idbSet("records",d).catch(()=>{try{localStorage.setItem(STORE_KEY,JSON.stringify(d));}catch(e){}});}
+let records={};
+const recordsReady=(async()=>{records=await loadRecords();return records;})();
+window.recordsReady=recordsReady;
 const now=new Date(), todayKey=ymd(now), todayColor=colorForDate(now);
 
 /* friends & profile */
@@ -754,8 +798,9 @@ function lockToday(){
   mode="done";
 }
 
-/* restore today's state */
-if(records[todayKey]){
+/* restore today's state (records読み込み後・クラウド復元後に呼ばれる) */
+function initTodayState(){
+  if(!records[todayKey]||mode==="done")return;
   const r=records[todayKey];
   idle.classList.add("hidden");
   preview.src=r.photo;
@@ -763,6 +808,11 @@ if(records[todayKey]){
   if(typeof r.score==="number")showResult(r.score,rankOf(r.score));
   lockToday();
 }
+recordsReady.then(()=>{
+  initTodayState();
+  if($("viewAlbum").classList.contains("on"))renderAlbum();
+  if($("viewTimeline").classList.contains("on"))renderTimeline();
+});
 
 /* ================= album ================= */
 function renderAlbum(){
@@ -783,26 +833,20 @@ function renderAlbum(){
   renderRanking();
 }
 
-/* ================= timeline ================= */
+/* ================= timeline (今日の投稿だけ・BeReal流) ================= */
 function renderTimeline(){
-  const keys=Object.keys(records).sort();
-  /* feed: own + local friends + cloud follows, newest first */
   const feed=$("feed");feed.innerHTML="";
   const posts=[];
-  keys.forEach(k=>posts.push({owner:"me",who:profile.name||"YOU",key:k,r:records[k],cloud:cloudSelfPosts[k]||null,ownerUid:myUid}));
+  if(records[todayKey])posts.push({owner:"me",who:profile.name||"YOU",key:todayKey,r:records[todayKey],cloud:cloudSelfPosts[todayKey]||null,ownerUid:myUid});
   Object.values(friends).forEach(f=>{
-    Object.keys(f.posts||{}).forEach(k=>{
-      if(k<=todayKey)posts.push({owner:f.id,who:f.name,key:k,r:f.posts[k],cloud:null,ownerUid:null});
-    });
+    if(f.posts&&f.posts[todayKey])posts.push({owner:f.id,who:f.name,key:todayKey,r:f.posts[todayKey],cloud:null,ownerUid:null});
   });
   Object.entries(cloudPeers).forEach(([uid,f])=>{
-    Object.keys(f.posts||{}).forEach(k=>{
-      if(k<=todayKey)posts.push({owner:"peer:"+uid,who:f.name,key:k,r:f.posts[k],cloud:f.posts[k],ownerUid:uid});
-    });
+    if(f.posts&&f.posts[todayKey])posts.push({owner:"peer:"+uid,who:f.name,key:todayKey,r:f.posts[todayKey],cloud:f.posts[todayKey],ownerUid:uid});
   });
-  posts.sort((a,b)=>a.key===b.key?(a.owner==="me"?-1:1):(a.key<b.key?1:-1));
+  posts.sort((a,b)=>a.owner==="me"?-1:1);
   if(!posts.length){
-    feed.innerHTML='<div class="empty-feed">NO POSTS YET</div>';
+    feed.innerHTML='<div class="empty-feed">NO POSTS TODAY — BE THE FIRST 📷</div>';
     return;
   }
   posts.forEach(p=>{
@@ -1121,6 +1165,7 @@ try{
   const cred=await signInAnonymously(auth);
   const uid=cred.user.uid;
   myUid=uid;
+  await window.recordsReady; // ローカル記録の読み込み完了を待つ
 
   /* friend code allocation (unique via transaction) */
   async function allocCode(){
@@ -1168,6 +1213,17 @@ try{
     if($("viewAlbum").classList.contains("on"))renderAlbum();
     if($("viewTimeline").classList.contains("on"))renderTimeline();
   }
+
+  /* download cloud posts missing locally (端末データ消失時の復元) */
+  let restored=false;
+  mine.docs.forEach(d=>{
+    if(!records[d.id]){
+      const p=d.data();
+      records[d.id]={date:p.date,color:p.color,name:p.name,en:p.en,photo:p.photo,score:p.score,rank:p.rank};
+      restored=true;
+    }
+  });
+  if(restored){save(records);initTodayState();refresh();}
 
   /* live: own posts (like counts) */
   FS.onSnapshot(FS.collection(db,"users",uid,"posts"),s=>{
