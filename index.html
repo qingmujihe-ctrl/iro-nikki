@@ -484,6 +484,10 @@
           <input id="followInput" maxlength="6" placeholder="FRIEND CODE" autocomplete="off" />
           <button class="wbtn slim grad" id="followBtn">FOLLOW</button>
         </div>
+        <div class="code-row" style="margin-top:10px;">
+          <button class="wbtn" id="googleBtn" style="flex:1;padding:11px 0;">SIGN IN WITH GOOGLE</button>
+        </div>
+        <div class="fnote">KEEP YOUR ACCOUNT WHEN YOU CHANGE PHONES</div>
       </div>
     </div>
 
@@ -522,7 +526,9 @@
       <h4>第5条（免責）</h4>
       <p>本アプリは現状のまま無保証で提供されます。データの消失・機能の不具合・利用者間のトラブル・本アプリの利用または利用不能から生じた損害について、運営者は故意または重過失による場合を除き、一切の責任を負いません。</p>
       <h4>第6条（アカウント）</h4>
-      <p>アカウントは端末ごとに自動作成される匿名アカウントです。機種変更・端末初期化によりアカウントとデータが失われることがあります。アカウントとクラウド上のデータの削除を希望する場合は、第9条の連絡先にフレンドコードを添えてご連絡ください。</p>
+      <p>アカウントは端末ごとに自動作成される匿名アカウントです。Googleログインで連携した場合を除き、機種変更・端末初期化によりアカウントとデータが失われることがあります。アカウントとクラウド上のデータの削除を希望する場合は、第9条の連絡先にフレンドコードを添えてご連絡ください。</p>
+      <h4>第6条の2（ブロック・通報）</h4>
+      <p>他の利用者の投稿はアプリ内からブロック・通報できます。通報を確認した場合、運営者は本規約に基づき投稿の削除等の対応を行います。</p>
       <h4>第7条（対象年齢）</h4>
       <p>13歳未満の方は、保護者の同意を得た上でご利用ください。</p>
       <h4>第8条（規約の変更・準拠法）</h4>
@@ -532,7 +538,7 @@
 
       <h3>プライバシーポリシー</h3>
       <h4>1. 取得する情報</h4>
-      <p>(1) 投稿した写真とその縮小画像 (2) ニックネーム・アバター画像 (3) 色の一致スコア (4) コメント・いいね (5) 匿名認証ID・フレンドコード。氏名・住所・電話番号・メールアドレス等は取得しません。</p>
+      <p>(1) 投稿した写真とその縮小画像 (2) ニックネーム・アバター画像 (3) 色の一致スコア (4) コメント・いいね (5) 認証ID・フレンドコード (6) 通報・ブロックの記録。氏名・住所・電話番号は取得しません。任意でGoogleログインを利用する場合、認証はGoogle・Firebaseが処理し、本アプリのデータベースにメールアドレスは保存しません。</p>
       <h4>2. 利用目的</h4>
       <p>本アプリの機能（記録・フォロー・タイムライン・ランキング）の提供のためにのみ利用します。広告・マーケティング目的では利用しません。</p>
       <h4>3. 保存先と第三者提供</h4>
@@ -591,6 +597,8 @@
     </div>
     <div class="btns">
       <button class="danger" id="mDel">DELETE</button>
+      <button class="danger hidden" id="mReport">REPORT</button>
+      <button class="danger hidden" id="mBlock">BLOCK</button>
       <button id="mClose">CLOSE</button>
     </div>
   </div>
@@ -762,6 +770,7 @@ const saveProfile=()=>localStorage.setItem(PROFILE_KEY,JSON.stringify(profile));
 /* cloud (Firebase) — 設定はページ末尾の IRO_FIREBASE_CONFIG に入れる */
 let cloudPeers={};      // uid -> {name,color,posts:{date:post}}
 let cloudSelfPosts={};  // 自分の投稿のクラウド側ミラー（いいね数の取得用）
+let cloudBlocks={};     // uid -> {name,at} ブロック済みユーザー
 let myUid=null;
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let stream=null, facing="environment", mode="idle";
@@ -942,6 +951,7 @@ function renderTimeline(){
     if(f.posts&&f.posts[todayKey])posts.push({owner:f.id,who:f.name,key:todayKey,r:f.posts[todayKey],cloud:null,ownerUid:null});
   });
   Object.entries(cloudPeers).forEach(([uid,f])=>{
+    if(cloudBlocks[uid])return;
     if(f.posts&&f.posts[todayKey])posts.push({owner:"peer:"+uid,who:f.name,key:todayKey,r:f.posts[todayKey],cloud:f.posts[todayKey],ownerUid:uid});
   });
   posts.sort((a,b)=>a.owner==="me"?-1:1);
@@ -1000,7 +1010,8 @@ function renderRanking(){
   const entrants=[];
   const mine=todayScore(records);
   if(mine)entrants.push({name:profile.name||"YOU",color:profile.color,avatar:profile.avatar,self:true,...mine});
-  Object.values(cloudPeers).forEach(f=>{
+  Object.entries(cloudPeers).forEach(([puid,f])=>{
+    if(cloudBlocks[puid])return;
     const a=todayScore(f.posts);
     if(a)entrants.push({name:f.name||"friend",color:f.color||"#7f8fa6",avatar:f.avatar,self:false,...a});
   });
@@ -1102,6 +1113,10 @@ function openModal(key,owner="me"){
   $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
   $("mColor").textContent=(r.en||r.name)+" · "+r.color.toUpperCase();
   $("mDel").style.display=owner==="me"?"":"none";
+  /* report/block: 他人のクラウド投稿のみ */
+  const isPeer=owner.startsWith("peer:");
+  $("mReport").classList.toggle("hidden",!isPeer);
+  $("mBlock").classList.toggle("hidden",!isPeer);
   /* comments (cloud posts only) */
   stopComments();
   const ownerUid=owner==="me"?myUid:(owner.startsWith("peer:")?owner.slice(5):null);
@@ -1137,6 +1152,23 @@ function sendComment(){
 }
 $("cmtSend").addEventListener("click",sendComment);
 $("cmtInput").addEventListener("keydown",e=>{if(e.key==="Enter")sendComment();});
+$("mReport").addEventListener("click",()=>{
+  if(!modalKey||!modalOwnerUid||!window.cloud)return;
+  if(confirm("Report this post as inappropriate?")){
+    window.cloud.report(modalOwnerUid,modalKey.key);
+    alert("Reported. Thank you.");
+    closeModal();
+  }
+});
+$("mBlock").addEventListener("click",()=>{
+  if(!modalKey||!modalOwnerUid||!window.cloud)return;
+  const name=(cloudPeers[modalOwnerUid]||{}).name||"this user";
+  if(confirm(`Block @${name}? Their posts will disappear from your timeline.`)){
+    window.cloud.block(modalOwnerUid,name);
+    closeModal();
+    renderTimeline();
+  }
+});
 $("mDel").addEventListener("click",()=>{
   if(!modalKey||modalKey.owner!=="me")return;
   if(confirm("Delete this entry?")){
@@ -1174,8 +1206,8 @@ function renderFriends(){
 
   /* friend list: cloud follows + local (file/bot) friends */
   const list=$("friendList");list.innerHTML="";
-  const peerIds=Object.keys(cloudPeers), ids=Object.keys(friends);
-  if(!peerIds.length&&!ids.length){list.innerHTML='<div class="empty-friends">NO FRIENDS YET</div>';}
+  const peerIds=Object.keys(cloudPeers), ids=Object.keys(friends), blockIds=Object.keys(cloudBlocks);
+  if(!peerIds.length&&!ids.length&&!blockIds.length){list.innerHTML='<div class="empty-friends">NO FRIENDS YET</div>';}
   peerIds.forEach(puid=>{
     const f=cloudPeers[puid];
     const row=document.createElement("div");row.className="frow";
@@ -1204,6 +1236,22 @@ function renderFriends(){
     btn.className="act";btn.textContent="REMOVE";
     btn.addEventListener("click",()=>{
       if(confirm(`Remove @${f.name}?`)){delete friends[id];saveFriends();renderFriends();}
+    });
+    row.appendChild(btn);
+    list.appendChild(row);
+  });
+  blockIds.forEach(buid=>{
+    const b=cloudBlocks[buid];
+    const row=document.createElement("div");row.className="frow";
+    row.style.opacity=".55";
+    row.appendChild(avatarEl(b.name||"?","#4a4f59",null));
+    const info=document.createElement("div");
+    info.innerHTML=`<div class="fn">${esc(b.name||"user")}</div><div class="fs">BLOCKED</div>`;
+    row.appendChild(info);
+    const btn=document.createElement("button");
+    btn.className="act";btn.textContent="UNBLOCK";
+    btn.addEventListener("click",()=>{
+      if(window.cloud&&confirm(`Unblock @${b.name||"user"}?`))window.cloud.unblock(buid);
     });
     row.appendChild(btn);
     list.appendChild(row);
@@ -1269,7 +1317,7 @@ window.IRO_FIREBASE_CONFIG = {
 if(window.IRO_FIREBASE_CONFIG){(async()=>{
 try{
   const {initializeApp}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js");
-  const {getAuth,signInAnonymously}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js");
+  const {getAuth,signInAnonymously,onAuthStateChanged,GoogleAuthProvider,linkWithPopup,signInWithCredential}=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js");
   const FS=await import("https://www.gstatic.com/firebasejs/11.6.0/firebase-firestore.js");
   const app=initializeApp(window.IRO_FIREBASE_CONFIG);
   if(window.IRO_APPCHECK_SITE_KEY){
@@ -1280,8 +1328,10 @@ try{
   }
   const db=FS.getFirestore(app);
   const auth=getAuth(app);
-  const cred=await signInAnonymously(auth);
-  const uid=cred.user.uid;
+  /* 既存ログイン(Google連携済み含む)があれば使い、なければ匿名で開始 */
+  await new Promise(res=>{const un=onAuthStateChanged(auth,()=>{un();res();});});
+  if(!auth.currentUser)await signInAnonymously(auth);
+  const uid=auth.currentUser.uid;
   myUid=uid;
   await window.recordsReady; // ローカル記録の読み込み完了を待つ
 
@@ -1379,6 +1429,41 @@ try{
     renderFollowing();refresh();
   });
 
+  /* blocks */
+  FS.onSnapshot(FS.collection(db,"users",uid,"blocks"),s=>{
+    cloudBlocks={};
+    s.forEach(d=>cloudBlocks[d.id]=d.data()||{});
+    renderFollowing();refresh();
+  });
+
+  /* Google sign-in (アカウント引き継ぎ) */
+  function updateGoogleUI(){
+    const linked=auth.currentUser&&auth.currentUser.providerData.some(p=>p.providerId==="google.com");
+    $("googleBtn").textContent=linked?"✓ GOOGLE CONNECTED":"SIGN IN WITH GOOGLE";
+    $("googleBtn").disabled=!!linked;
+  }
+  updateGoogleUI();
+  $("googleBtn").addEventListener("click",async()=>{
+    const prov=new GoogleAuthProvider();
+    try{
+      await linkWithPopup(auth.currentUser,prov);
+      updateGoogleUI();
+      alert("Connected! Your account is now safe across devices.");
+    }catch(e){
+      if(e.code==="auth/credential-already-in-use"){
+        // このGoogleアカウントは既に別のIROアカウントに紐付いている → そちらに切替
+        try{
+          const cred=GoogleAuthProvider.credentialFromError(e);
+          await signInWithCredential(auth,cred);
+          alert("Signed in to your existing account. Reloading…");
+          location.reload();
+        }catch(e2){alert("Sign-in failed. Try again.");}
+      }else if(e.code!=="auth/popup-closed-by-user"&&e.code!=="auth/cancelled-popup-request"){
+        alert("Sign-in failed: "+(e.code||""));
+      }
+    }
+  });
+
   /* copy & follow */
   $("copyCode").addEventListener("click",()=>{
     navigator.clipboard.writeText(me.code).then(()=>{
@@ -1393,6 +1478,7 @@ try{
     try{
       const cs=await FS.getDoc(FS.doc(db,"codes",code));
       if(!cs.exists()){alert("Code not found.");return;}
+      if(cloudBlocks[cs.data().uid]){alert("You blocked this user. Unblock first.");return;}
       await FS.setDoc(FS.doc(db,"users",uid,"follows",cs.data().uid),{addedAt:Date.now()});
       $("followInput").value="";
     }catch(e){alert("Follow failed. Try again.");}
@@ -1409,6 +1495,14 @@ try{
     setName(n){me.name=n;FS.updateDoc(meRef,{name:n}).catch(()=>{});},
     setAvatar(a){me.avatar=a;FS.updateDoc(meRef,{avatar:a||null}).catch(()=>{});},
     unfollow(puid){FS.deleteDoc(FS.doc(db,"users",uid,"follows",puid)).catch(()=>{});},
+    block(puid,name){
+      FS.setDoc(FS.doc(db,"users",uid,"blocks",puid),{name:name||"",at:Date.now()}).catch(()=>{});
+      FS.deleteDoc(FS.doc(db,"users",uid,"follows",puid)).catch(()=>{});
+    },
+    unblock(puid){FS.deleteDoc(FS.doc(db,"users",uid,"blocks",puid)).catch(()=>{});},
+    report(puid,date){
+      FS.addDoc(FS.collection(db,"reports"),{reporter:uid,target:puid,post:date||null,at:Date.now()}).catch(()=>{});
+    },
     listenComments(owner,date,cb){
       return FS.onSnapshot(
         FS.query(FS.collection(db,"users",owner,"posts",date,"comments"),FS.orderBy("at","asc"),FS.limit(100)),
