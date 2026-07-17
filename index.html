@@ -638,6 +638,24 @@ const PALETTE = [
   {hex:"#c9bdf0", name:"藤色",       en:"WISTERIA"},
   {hex:"#7f8fa6", name:"銀鼠",       en:"SILVER"},
   {hex:"#e17055", name:"珊瑚色",     en:"CORAL"},
+  /* ▼ 2026-07-16 追加分（過去の日の色を変えないため末尾に追加） */
+  {hex:"#ff3b30", name:"赤",         en:"PURE RED"},
+  {hex:"#b71540", name:"臙脂",       en:"WINE"},
+  {hex:"#f7b731", name:"金色",       en:"GOLD"},
+  {hex:"#e55039", name:"柿色",       en:"PERSIMMON"},
+  {hex:"#ffda79", name:"蜂蜜色",     en:"HONEY"},
+  {hex:"#b8e994", name:"若苗色",     en:"PALE LIME"},
+  {hex:"#78e08f", name:"若緑",       en:"SPRING GREEN"},
+  {hex:"#38ada9", name:"青緑",       en:"TEAL"},
+  {hex:"#60a3bc", name:"納戸色",     en:"STEEL BLUE"},
+  {hex:"#227093", name:"藍色",       en:"INDIGO BLUE"},
+  {hex:"#0c2461", name:"濃紺",       en:"MIDNIGHT"},
+  {hex:"#82589f", name:"江戸紫",     en:"EDO PURPLE"},
+  {hex:"#fda7df", name:"薄紅",       en:"ROSE PINK"},
+  {hex:"#d1ccc0", name:"胡粉色",     en:"BONE"},
+  {hex:"#84817a", name:"利休鼠",     en:"STONE GRAY"},
+  {hex:"#5d4037", name:"焦茶",       en:"DARK BROWN"},
+  {hex:"#1e3799", name:"瑠璃紺",     en:"ROYAL BLUE"},
 ];
 const STORE_KEY = "iro-nikki-records";
 
@@ -647,7 +665,10 @@ const ymd=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
 const dayNumber=d=>Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
 const parseYmd=s=>{const[a,b,c]=s.split("-").map(Number);return new Date(a,b-1,c);};
 function colorForDate(d){
-  const i=((dayNumber(d)*17)%PALETTE.length+PALETTE.length)%PALETTE.length;
+  const dn=dayNumber(d);
+  // 2026-07-16(dayNumber 20650)から48色。それ以前は当時の31色のまま（過去の色を保存）
+  const N=dn>=20650?PALETTE.length:31;
+  const i=((dn*17)%N+N)%N;
   return PALETTE[i];
 }
 
@@ -677,14 +698,14 @@ function judge(imgEl, targetHex){
   for(let i=0;i<n;i++){
     const lab=rgb2lab(data[i*4],data[i*4+1],data[i*4+2]);
     const d=dE(lab,target);
-    if(d<18)near++;
-    if(d<32)close++;
+    if(d<16)near++;
+    if(d<30)close++;
     if(d<minD)minD=d;
   }
   const cov=near/n, covLoose=close/n;
-  // score: sqrt curve so a small found object still scores well,
-  // but only large coverage reaches PERFECT
-  let score = Math.min(1,Math.sqrt(cov*4.5))*62 + Math.min(1,Math.sqrt(covLoose*2.4))*23 + Math.max(0,1-minD/60)*15;
+  // 2026-07-15調整: OCHREの日に全員99%で飽和したため厳格化。
+  // PERFECTには画面の約40%の高精度一致が必要。スコアが分布するように。
+  let score = Math.min(1,Math.sqrt(cov*2.6))*60 + Math.min(1,Math.sqrt(covLoose*1.5))*25 + Math.max(0,1-minD/55)*15;
   score=Math.round(Math.max(2,Math.min(99,score)));
   return {score, rank:rankOf(score)};
 }
