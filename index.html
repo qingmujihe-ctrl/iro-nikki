@@ -317,6 +317,28 @@
   .rankrow .pct{font-weight:900;font-size:15px;flex:0 0 auto;}
   .rankrow .rn .you{font-size:8px;font-weight:900;letter-spacing:.12em;color:var(--accent2);margin-left:6px;}
 
+  /* ---------- achievements ---------- */
+  .badges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .badge{
+    background:var(--bg2);border:1px solid var(--line);border-radius:14px;
+    padding:13px 6px 11px;text-align:center;
+  }
+  .badge .be{font-size:24px;line-height:1;}
+  .badge .bn{font-size:8px;font-weight:800;letter-spacing:.1em;color:var(--muted);margin-top:6px;}
+  .badge.locked{opacity:.28;filter:grayscale(1);}
+  .badge.unlocked{border-color:transparent;background:linear-gradient(var(--bg2),var(--bg2)) padding-box,var(--grad) border-box;}
+
+  /* ---------- monthly best ---------- */
+  .bestrow{
+    display:flex;align-items:center;gap:11px;margin-bottom:9px;
+    background:var(--bg2);border-radius:12px;padding:8px 11px;cursor:pointer;
+  }
+  .bestrow:active{opacity:.75;}
+  .bestrow img{width:46px;height:46px;border-radius:9px;object-fit:cover;flex:0 0 auto;}
+  .bestrow .bt{font-size:8px;font-weight:900;letter-spacing:.18em;color:var(--faint);}
+  .bestrow .bs{font-size:13px;font-weight:800;line-height:1.35;}
+  .bestrow .bpct{margin-left:auto;font-size:17px;font-weight:900;flex:0 0 auto;}
+
   /* ---------- legal / consent ---------- */
   .sheet.legal{max-height:82dvh;display:flex;flex-direction:column;}
   .legal-body{overflow-y:auto;padding:18px 18px 6px;font-size:12px;line-height:1.75;color:var(--muted);}
@@ -442,6 +464,11 @@
       <div class="stat"><div class="num" id="stStreak">0</div><div class="lbl">STREAK</div></div>
       <div class="stat"><div class="num" id="stColors">0</div><div class="lbl">COLORS</div></div>
       <div class="stat"><div class="num" id="stAvg">–</div><div class="lbl">AVG SYNC</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>ACHIEVEMENTS</h2>
+      <div class="badges" id="badgeGrid"></div>
     </div>
 
     <div class="panel">
@@ -596,6 +623,7 @@
       <button id="cmtSend">POST</button>
     </div>
     <div class="btns">
+      <button class="hidden" id="mShare">SHARE</button>
       <button class="danger" id="mDel">DELETE</button>
       <button class="danger hidden" id="mReport">REPORT</button>
       <button class="danger hidden" id="mBlock">BLOCK</button>
@@ -957,9 +985,51 @@ function renderAlbum(){
   const scores=keys.map(k=>records[k].score).filter(s=>typeof s==="number");
   $("stAvg").textContent=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"–";
 
-  /* albums */
+  /* albums + badges */
   renderMonthly(keys);
   renderPhotos(keys);
+  renderBadges(keys);
+}
+
+/* ================= achievements ================= */
+const BADGES=[
+  {emoji:"📷",name:"FIRST SHOT",     test:s=>s.total>=1},
+  {emoji:"🎞",name:"10 SHOTS",       test:s=>s.total>=10},
+  {emoji:"💯",name:"100 SHOTS",      test:s=>s.total>=100},
+  {emoji:"🔥",name:"3-DAY STREAK",   test:s=>s.maxStreak>=3},
+  {emoji:"⚡",name:"WEEK STREAK",    test:s=>s.maxStreak>=7},
+  {emoji:"🌙",name:"MONTH STREAK",   test:s=>s.maxStreak>=30},
+  {emoji:"✨",name:"FIRST PERFECT",  test:s=>s.perfects>=1},
+  {emoji:"👑",name:"PERFECT ×10",    test:s=>s.perfects>=10},
+  {emoji:"🎨",name:"10 COLORS",      test:s=>s.colors>=10},
+  {emoji:"🌈",name:"25 COLORS",      test:s=>s.colors>=25},
+  {emoji:"🏆",name:"FULL SPECTRUM",  test:s=>s.colors>=48},
+];
+function badgeStats(keys){
+  let maxStreak=0,cur=0,prev=null;
+  keys.forEach(k=>{
+    const dn=dayNumber(parseYmd(k));
+    cur=(prev!==null&&dn===prev+1)?cur+1:1;
+    if(cur>maxStreak)maxStreak=cur;
+    prev=dn;
+  });
+  return{
+    total:keys.length,
+    maxStreak,
+    perfects:keys.filter(k=>records[k].score>=85).length,
+    colors:new Set(keys.map(k=>records[k].en)).size,
+  };
+}
+function renderBadges(keys){
+  const s=badgeStats(keys);
+  const grid=$("badgeGrid");grid.innerHTML="";
+  BADGES.forEach(b=>{
+    const on=b.test(s);
+    const el=document.createElement("div");
+    el.className="badge "+(on?"unlocked":"locked");
+    el.innerHTML=`<div class="be">${b.emoji}</div><div class="bn">${b.name}</div>`;
+    grid.appendChild(el);
+  });
 }
 
 /* ================= timeline (今日の投稿だけ・BeReal流) ================= */
@@ -1076,9 +1146,24 @@ function renderMonthly(keys){
     const block=document.createElement("div");
     block.className="month-block";
     const cnt=byMonth[m].length;
+    /* 月間ベストショット（最高SYNC） */
+    const scored=byMonth[m].filter(k=>typeof records[k].score==="number");
+    let bestHtml="";
+    if(scored.length){
+      const bestKey=scored.reduce((a,b)=>records[a].score>=records[b].score?a:b);
+      const br=records[bestKey],rk=rankOf(br.score);
+      bestHtml=`<div class="bestrow" data-key="${bestKey}">
+        <img src="${br.thumb||br.photo}" alt="" />
+        <div><div class="bt">BEST SHOT</div><div class="bs">${esc(br.en||br.name)}</div></div>
+        <div class="bpct" style="color:${rk.c}">${br.score}%</div>
+      </div>`;
+    }
     block.innerHTML=`
       <div class="month-head"><span class="m">${y}.${pad(mo)}</span><span class="c">${cnt} ${cnt===1?"SHOT":"SHOTS"}</span></div>
+      ${bestHtml}
       <div class="calhead"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>`;
+    const bestEl=block.querySelector(".bestrow");
+    if(bestEl)bestEl.addEventListener("click",()=>openModal(bestEl.dataset.key));
     const grid=document.createElement("div");grid.className="pgrid cal";
     const firstDow=new Date(y,mo-1,1).getDay();
     const days=new Date(y,mo,0).getDate();
@@ -1134,6 +1219,7 @@ function openModal(key,owner="me"){
   $("mDate").textContent=d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate())+" · @"+who;
   $("mColor").textContent=(r.en||r.name)+" · "+r.color.toUpperCase();
   $("mDel").style.display=owner==="me"?"":"none";
+  $("mShare").classList.toggle("hidden",owner!=="me");
   /* report/block: 他人のクラウド投稿のみ */
   const isPeer=owner.startsWith("peer:");
   $("mReport").classList.toggle("hidden",!isPeer);
@@ -1181,6 +1267,65 @@ $("mReport").addEventListener("click",()=>{
     closeModal();
   }
 });
+/* ================= share card ================= */
+async function shareCard(r){
+  const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=r.photo;});
+  const W=1080,H=1350,cv=document.createElement("canvas");cv.width=W;cv.height=H;
+  const x=cv.getContext("2d");
+  x.fillStyle="#0c0d10";x.fillRect(0,0,W,H);
+  /* header */
+  x.textBaseline="middle";
+  x.fillStyle="#f2f3f5";x.font="800 62px system-ui,sans-serif";
+  x.fillText("IRO.",60,88);
+  const d=parseYmd(r.date);
+  x.fillStyle="#8b919c";x.font="700 34px system-ui,sans-serif";x.textAlign="right";
+  x.fillText(d.getFullYear()+"."+pad(d.getMonth()+1)+"."+pad(d.getDate()),W-60,88);
+  x.textAlign="left";
+  /* photo (rounded,色の枠つき) */
+  const P=60,PW=W-120,PY=150;
+  x.save();x.beginPath();
+  if(x.roundRect)x.roundRect(P,PY,PW,PW,42);else x.rect(P,PY,PW,PW);
+  x.clip();x.drawImage(img,P,PY,PW,PW);x.restore();
+  x.strokeStyle=r.color;x.lineWidth=10;
+  x.beginPath();
+  if(x.roundRect)x.roundRect(P,PY,PW,PW,42);else x.rect(P,PY,PW,PW);
+  x.stroke();
+  /* footer info */
+  const by=PY+PW+96;
+  x.fillStyle=r.color;x.beginPath();x.arc(102,by,42,0,7);x.fill();
+  x.fillStyle="#f2f3f5";x.font="800 54px system-ui,sans-serif";
+  x.fillText(r.en||"",176,by-18);
+  x.fillStyle="#8b919c";x.font="700 30px system-ui,sans-serif";
+  x.fillText((r.color||"").toUpperCase(),176,by+34);
+  if(typeof r.score==="number"){
+    const rk=rankOf(r.score);
+    x.textAlign="right";
+    x.fillStyle="#f2f3f5";x.font="900 92px system-ui,sans-serif";
+    x.fillText(r.score+"%",W-60,by-16);
+    x.fillStyle=rk.c;x.font="italic 900 38px system-ui,sans-serif";
+    x.fillText(rk.t,W-60,by+46);
+    x.textAlign="left";
+  }
+  x.fillStyle="#4a4f59";x.font="700 26px system-ui,sans-serif";x.textAlign="center";
+  x.fillText("ONE COLOR · ONE SHOT · ONE DAY",W/2,H-58);
+  x.textAlign="left";
+  /* share or download */
+  const blob=await new Promise(res=>cv.toBlob(res,"image/jpeg",0.9));
+  const file=new File([blob],"iro-"+r.date+".jpg",{type:"image/jpeg"});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file]});}catch(e){/* キャンセルは無視 */}
+  }else{
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);a.download=file.name;a.click();
+    URL.revokeObjectURL(a.href);
+  }
+}
+$("mShare").addEventListener("click",()=>{
+  if(!modalKey||modalKey.owner!=="me")return;
+  const r=records[modalKey.key];
+  if(r)shareCard(r);
+});
+
 $("mBlock").addEventListener("click",()=>{
   if(!modalKey||!modalOwnerUid||!window.cloud)return;
   const name=(cloudPeers[modalOwnerUid]||{}).name||"this user";
