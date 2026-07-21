@@ -52,7 +52,12 @@
     flex:1;background:none;border:none;color:var(--faint);cursor:pointer;
     font-family:inherit;font-size:10px;font-weight:700;letter-spacing:.16em;
     display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;
-    transition:color .15s;
+    transition:color .15s;position:relative;
+  }
+  .nbadge{
+    position:absolute;top:-3px;right:16%;
+    background:#ff6b81;color:#fff;font-size:9px;font-weight:900;
+    border-radius:999px;padding:2px 6px;min-width:17px;letter-spacing:0;
   }
   .nav button .ico{font-size:21px;line-height:1;filter:grayscale(1) opacity(.55);transition:filter .15s;}
   .nav button.on{color:var(--ink);}
@@ -97,6 +102,13 @@
   }
   .stage .idle .big{font-size:44px;}
   .stage .idle .tagline{font-size:10px;font-weight:800;letter-spacing:.3em;color:var(--faint);}
+  #matchOverlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .matchbtn{
+    margin-top:8px;background:rgba(255,255,255,.16);border:none;color:#fff;
+    font-family:inherit;font-size:9px;font-weight:800;letter-spacing:.14em;
+    padding:6px 11px;border-radius:999px;cursor:pointer;backdrop-filter:blur(4px);
+  }
+  .matchbtn:active{opacity:.7;}
   .hidden{display:none!important;}
 
   /* result overlay */
@@ -433,6 +445,7 @@
       </div>
       <video id="video" playsinline autoplay muted class="hidden"></video>
       <img id="preview" class="hidden" alt="" />
+      <img id="matchOverlay" class="hidden" alt="" />
       <div class="analyzing hidden" id="analyzing">
         <div class="spinner"></div>
         <div class="txt">ANALYZING…</div>
@@ -441,6 +454,7 @@
         <div>
           <div class="sub">COLOR SYNC</div>
           <div class="rank" id="rankTxt">—</div>
+          <button class="matchbtn" id="matchBtn">👁 SHOW MATCH</button>
         </div>
         <div class="scorering" id="ring"><span id="ringNum">0</span><small>%</small></div>
       </div>
@@ -596,7 +610,7 @@
 <nav class="nav">
   <div class="nav-inner">
     <button id="tabCam" class="on"><span class="ico">📷</span>CAMERA</button>
-    <button id="tabTimeline"><span class="ico">🏠</span>TIMELINE</button>
+    <button id="tabTimeline"><span class="ico">🏠</span>TIMELINE<span class="nbadge hidden" id="tlBadge"></span></button>
     <button id="tabAlbum"><span class="ico">🎞</span>ALBUM</button>
     <button id="tabFriends"><span class="ico">👥</span>FRIENDS</button>
   </div>
@@ -840,7 +854,7 @@ function switchTab(name){
     $(VIEWS[k][1]).classList.toggle("on",k===name);
   }
   if(name==="album")renderAlbum();
-  if(name==="timeline")renderTimeline();
+  if(name==="timeline"){renderTimeline();markSeen();}
   if(name==="friends")renderFriends();
 }
 $("tabCam").addEventListener("click",()=>switchTab("cam"));
@@ -899,6 +913,7 @@ $("fileInput").addEventListener("change",e=>{
 /* ================= shot -> judge -> commit ================= */
 function processShot(dataUrl){
   idle.classList.add("hidden");
+  resetMatchOverlay();
   preview.src=dataUrl;
   preview.classList.remove("hidden");
   $("analyzing").classList.remove("hidden");
@@ -910,6 +925,7 @@ function processShot(dataUrl){
       records[todayKey]={date:todayKey,color:todayColor.hex,name:todayColor.name,en:todayColor.en,photo:dataUrl,thumb:makeThumb(img),score,rank:rank.t};
       save(records);
       if(window.cloud)window.cloud.pushPost(records[todayKey]);
+      updateNotifBadge();
       $("analyzing").classList.add("hidden");
       showResult(score,rank);
       lockToday();
@@ -939,6 +955,47 @@ function lockToday(){
   $("donebox").classList.remove("hidden");
   mode="done";
 }
+
+/* ---- マッチ箇所の可視化（一致ピクセル以外を暗くするスポットライト） ---- */
+let matchOverlayUrl=null;
+function resetMatchOverlay(){
+  matchOverlayUrl=null;
+  $("matchOverlay").classList.add("hidden");
+  $("matchBtn").textContent="👁 SHOW MATCH";
+}
+function buildMatchOverlay(photo,hex,cb){
+  const im=new Image();
+  im.onload=()=>{
+    const S=240,cv=document.createElement("canvas");cv.width=cv.height=S;
+    const x=cv.getContext("2d");
+    x.drawImage(im,0,0,S,S);
+    const src=x.getImageData(0,0,S,S);
+    const t=rgb2lab(...hexRgb(hex));
+    const out=x.createImageData(S,S);
+    for(let i=0;i<S*S;i++){
+      const d=dE(rgb2lab(src.data[i*4],src.data[i*4+1],src.data[i*4+2]),t);
+      const o=i*4;
+      out.data[o]=0;out.data[o+1]=0;out.data[o+2]=0;
+      // 高一致=素通し / 準一致=薄暗く / 不一致=しっかり暗く
+      out.data[o+3]=d<16?0:(d<30?130:205);
+    }
+    x.putImageData(out,0,0);
+    cb(cv.toDataURL("image/png"));
+  };
+  im.src=photo;
+}
+$("matchBtn").addEventListener("click",()=>{
+  const r=records[todayKey];if(!r)return;
+  const ov=$("matchOverlay");
+  if(!ov.classList.contains("hidden")){
+    ov.classList.add("hidden");
+    $("matchBtn").textContent="👁 SHOW MATCH";
+    return;
+  }
+  const show=url=>{ov.src=url;ov.classList.remove("hidden");$("matchBtn").textContent="🙈 HIDE MATCH";};
+  if(matchOverlayUrl)show(matchOverlayUrl);
+  else buildMatchOverlay(r.photo,r.color,url=>{matchOverlayUrl=url;show(url);});
+});
 
 /* restore today's state (records読み込み後・クラウド復元後に呼ばれる) */
 function initTodayState(){
@@ -970,6 +1027,7 @@ recordsReady.then(()=>{
   if($("viewAlbum").classList.contains("on"))renderAlbum();
   if($("viewTimeline").classList.contains("on"))renderTimeline();
   backfillThumbs();
+  updateNotifBadge();
 });
 
 /* ================= album ================= */
@@ -1447,6 +1505,49 @@ $("avatarInput").addEventListener("change",e=>{
   rd.readAsDataURL(f);
 });
 
+/* ================= notification badges (サーバー不要のローカル差分) ================= */
+const SEEN_KEY="iro-nikki-seen";
+function loadSeen(){return loadJson(SEEN_KEY,null);}
+function computeNewReactions(){
+  const seen=loadSeen();
+  if(!seen)return 0;
+  let n=0;
+  Object.keys(cloudSelfPosts).forEach(k=>{
+    const p=cloudSelfPosts[k];
+    const s=seen[k]||{likes:0,comments:0};
+    n+=Math.max(0,(p.likedBy||[]).length-(s.likes||0));
+    n+=Math.max(0,(p.commentCount||0)-(s.comments||0));
+  });
+  return n;
+}
+function markSeen(){
+  const seen={};
+  Object.keys(cloudSelfPosts).forEach(k=>{
+    seen[k]={likes:(cloudSelfPosts[k].likedBy||[]).length,comments:cloudSelfPosts[k].commentCount||0};
+  });
+  localStorage.setItem(SEEN_KEY,JSON.stringify(seen));
+  updateNotifBadge();
+}
+function updateNotifBadge(){
+  // 初回はいきなり大量表示にならないよう現状を既読化
+  if(loadSeen()===null){
+    if(Object.keys(cloudSelfPosts).length)markSeen();
+    updateAppBadge(0);
+    return;
+  }
+  const n=computeNewReactions();
+  const b=$("tlBadge");
+  b.classList.toggle("hidden",n<=0);
+  b.textContent=n>99?"99+":n;
+  updateAppBadge(n);
+}
+function updateAppBadge(reactions){
+  if(!("setAppBadge" in navigator))return;
+  const total=(records[todayKey]?0:1)+(reactions||0); // 今日未撮影なら+1
+  if(total>0)navigator.setAppBadge(total).catch(()=>{});
+  else if(navigator.clearAppBadge)navigator.clearAppBadge().catch(()=>{});
+}
+
 /* ================= legal / consent ================= */
 const openLegalModal=()=>$("legalModal").classList.remove("hidden");
 $("openLegal").addEventListener("click",openLegalModal);
@@ -1564,6 +1665,7 @@ try{
     cloudSelfPosts={};
     s.forEach(d=>cloudSelfPosts[d.id]=d.data());
     refresh();
+    updateNotifBadge();
   });
 
   /* friend list re-render (unified list lives in the FRIENDS panel) */
