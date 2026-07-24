@@ -102,7 +102,8 @@
   }
   .stage .idle .big{font-size:44px;}
   .stage .idle .tagline{font-size:10px;font-weight:800;letter-spacing:.3em;color:var(--faint);}
-  #matchOverlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  #matchOverlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;animation:matchglow 1.5s ease-in-out infinite;}
+  @keyframes matchglow{0%,100%{filter:brightness(1) contrast(1);}50%{filter:brightness(1.28) contrast(1.12);}}
   .matchbtn{
     margin-top:8px;background:rgba(255,255,255,.16);border:none;color:#fff;
     font-family:inherit;font-size:9px;font-weight:800;letter-spacing:.14em;
@@ -966,34 +967,48 @@ function resetMatchOverlay(){
 function buildMatchOverlay(photo,hex,cb){
   const im=new Image();
   im.onload=()=>{
-    const S=360,cv=document.createElement("canvas");cv.width=cv.height=S;
-    const x=cv.getContext("2d");
-    x.drawImage(im,0,0,S,S);
-    const src=x.getImageData(0,0,S,S);
+    const S=360;
+    const read=document.createElement("canvas");read.width=read.height=S;
+    const rx=read.getContext("2d");
+    rx.drawImage(im,0,0,S,S);
+    const src=rx.getImageData(0,0,S,S);
     const t=rgb2lab(...hexRgb(hex));
-    const out=x.createImageData(S,S);
+    const base=new ImageData(S,S);   // 背景（暗いモノクロ＋一致は明るい元色）
+    const glow=new ImageData(S,S);   // 一致部分だけの発光レイヤー
     let matched=0;
     for(let i=0;i<S*S;i++){
       const o=i*4;
       const r=src.data[o],g=src.data[o+1],b=src.data[o+2];
       const d=dE(rgb2lab(r,g,b),t);
       if(d<16){
-        // 一致：元の色のまま、少し明るく光らせる
         matched++;
-        out.data[o]  =Math.min(255,r+40);
-        out.data[o+1]=Math.min(255,g+40);
-        out.data[o+2]=Math.min(255,b+40);
+        // 一致：元色を思い切り明るく（発光の芯）
+        base.data[o]  =Math.min(255,r*1.15+70);
+        base.data[o+1]=Math.min(255,g*1.15+70);
+        base.data[o+2]=Math.min(255,b*1.15+70);
+        base.data[o+3]=255;
+        // 発光レイヤーにも同じ色を積む
+        glow.data[o]  =Math.min(255,r*1.3+80);
+        glow.data[o+1]=Math.min(255,g*1.3+80);
+        glow.data[o+2]=Math.min(255,b*1.3+80);
+        glow.data[o+3]=255;
       }else{
-        // 不一致：暗いモノクロに沈める（近い色はやや明るめ）
         const gray=(r*0.3+g*0.59+b*0.11);
-        const k=d<30?0.28:0.16;
-        out.data[o]  =gray*k;
-        out.data[o+1]=gray*k;
-        out.data[o+2]=gray*k;
+        const k=d<30?0.22:0.1;
+        base.data[o]=gray*k;base.data[o+1]=gray*k;base.data[o+2]=gray*k;base.data[o+3]=255;
+        glow.data[o+3]=0;
       }
-      out.data[o+3]=255;
     }
-    x.putImageData(out,0,0);
+    const cv=document.createElement("canvas");cv.width=cv.height=S;
+    const x=cv.getContext("2d");
+    x.putImageData(base,0,0);
+    // 発光レイヤーをぼかして加算合成 → にじむ光（ブルーム）
+    const gc=document.createElement("canvas");gc.width=gc.height=S;
+    gc.getContext("2d").putImageData(glow,0,0);
+    x.globalCompositeOperation="lighter";
+    x.filter="blur(7px)";x.drawImage(gc,0,0);
+    x.filter="blur(16px)";x.drawImage(gc,0,0);x.drawImage(gc,0,0);
+    x.filter="none";x.globalCompositeOperation="source-over";
     // 下部にキャプション
     const pct=Math.round(matched/(S*S)*100);
     x.fillStyle="rgba(0,0,0,.55)";x.fillRect(0,S-42,S,42);
