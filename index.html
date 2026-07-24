@@ -966,21 +966,41 @@ function resetMatchOverlay(){
 function buildMatchOverlay(photo,hex,cb){
   const im=new Image();
   im.onload=()=>{
-    const S=240,cv=document.createElement("canvas");cv.width=cv.height=S;
+    const S=360,cv=document.createElement("canvas");cv.width=cv.height=S;
     const x=cv.getContext("2d");
     x.drawImage(im,0,0,S,S);
     const src=x.getImageData(0,0,S,S);
     const t=rgb2lab(...hexRgb(hex));
     const out=x.createImageData(S,S);
+    let matched=0;
     for(let i=0;i<S*S;i++){
-      const d=dE(rgb2lab(src.data[i*4],src.data[i*4+1],src.data[i*4+2]),t);
       const o=i*4;
-      out.data[o]=0;out.data[o+1]=0;out.data[o+2]=0;
-      // 高一致=素通し / 準一致=薄暗く / 不一致=しっかり暗く
-      out.data[o+3]=d<16?0:(d<30?130:205);
+      const r=src.data[o],g=src.data[o+1],b=src.data[o+2];
+      const d=dE(rgb2lab(r,g,b),t);
+      if(d<16){
+        // 一致：元の色のまま、少し明るく光らせる
+        matched++;
+        out.data[o]  =Math.min(255,r+40);
+        out.data[o+1]=Math.min(255,g+40);
+        out.data[o+2]=Math.min(255,b+40);
+      }else{
+        // 不一致：暗いモノクロに沈める（近い色はやや明るめ）
+        const gray=(r*0.3+g*0.59+b*0.11);
+        const k=d<30?0.28:0.16;
+        out.data[o]  =gray*k;
+        out.data[o+1]=gray*k;
+        out.data[o+2]=gray*k;
+      }
+      out.data[o+3]=255;
     }
     x.putImageData(out,0,0);
-    cb(cv.toDataURL("image/png"));
+    // 下部にキャプション
+    const pct=Math.round(matched/(S*S)*100);
+    x.fillStyle="rgba(0,0,0,.55)";x.fillRect(0,S-42,S,42);
+    x.fillStyle=hex;x.beginPath();x.arc(26,S-21,9,0,7);x.fill();
+    x.fillStyle="#fff";x.font="800 17px system-ui,sans-serif";x.textBaseline="middle";
+    x.fillText("MATCHED  "+pct+"%",44,S-20);
+    cb(cv.toDataURL("image/jpeg",0.85));
   };
   im.src=photo;
 }
